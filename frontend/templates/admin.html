@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block titulo %}Nimbus · Caché LRU{% endblock %}
+
+{% block contenido %}
+<main class="panel">
+  <header class="panel-cabecera">
+    <div class="panel-titulo">
+      <h1>Caché LRU</h1>
+      <div class="panel-sub">
+        <span>Capacidad <span id="subCap">—</span> · TTL <span id="subTtl">—</span> s</span>
+        <span id="chipModo" class="estado"><span class="punto"></span><span id="txtModo">Conectando…</span></span>
+      </div>
+    </div>
+    <div class="pestanas" role="tablist" aria-label="Secciones del panel">
+      <button type="button" class="pestana" role="tab" id="tabVivo" aria-controls="vistaVivo" aria-selected="true">En vivo</button>
+      <button type="button" class="pestana" role="tab" id="tabBench" aria-controls="vistaBench" aria-selected="false" tabindex="-1">Benchmark</button>
+    </div>
+  </header>
+
+  <!-- Aviso cuando Open-Meteo falla (o responde 429) y el sistema pasó solo al simulado -->
+  <p id="avisoApi" class="t-error aviso-api" role="alert" hidden></p>
+  <p id="mensaje" class="t-error panel-mensaje" role="alert" hidden></p>
+
+  <!-- ===================== En vivo ===================== -->
+  <div id="vistaVivo" role="tabpanel" aria-labelledby="tabVivo">
+    <section class="metricas" aria-label="Métricas">
+      <div class="metrica"><span class="k">Aciertos</span><span class="big" id="mAciertos">0</span></div>
+      <div class="metrica"><span class="k">Fallos</span><span class="big" id="mFallos">0</span></div>
+      <div class="metrica"><span class="k">Tasa de aciertos</span><span class="big"><span id="mTasa">0.0</span><span class="big-sub">%</span></span></div>
+      <div class="metrica"><span class="k">Expulsiones</span><span class="big" id="mExpulsiones">0</span><span class="nota" id="mExpirados"></span></div>
+      <div class="metrica"><span class="k">Tamaño</span><span class="big"><span id="mTamano">0</span><span class="big-sub">/<span id="mCapacidad">0</span></span></span><div class="progreso"><i id="mOcupacion"></i></div></div>
+      <div class="metrica"><span class="k">API evitadas</span><span class="big" id="mEvitadas">0</span><span class="nota" id="mAhorro"></span></div>
+    </section>
+
+    <!-- Con caché vs. sin caché (todas las consultas: público y simulaciones) -->
+    <section class="comparacion" aria-labelledby="tituloComparacion">
+      <h2 id="tituloComparacion" class="k">Con caché vs. sin caché</h2>
+      <div class="comparacion-celdas">
+        <div class="metrica"><span class="k">Respuesta desde caché</span><span class="big"><span id="cCache">—</span><span class="big-sub"> ms</span></span><span class="nota">promedio</span></div>
+        <div class="metrica"><span class="k">Respuesta desde la API</span><span class="big"><span id="cApi">—</span><span class="big-sub"> ms</span></span><span class="nota">promedio</span></div>
+        <div class="metrica"><span class="k">Veces más rápido</span><span class="big"><span class="big-sub">×</span><span id="cVeces">—</span></span><span class="nota">promedio API ÷ promedio caché</span></div>
+        <div class="metrica"><span class="k">Tiempo total ahorrado</span><span class="big"><span id="cAhorro">0</span><span class="big-sub"> s</span></span><span class="nota">aciertos × promedio API − tiempo real de los aciertos</span></div>
+      </div>
+    </section>
+
+    <section class="seccion seccion-lista" aria-label="Lista doblemente enlazada">
+      <div class="bloque-titulo">
+        <h2>Lista doblemente enlazada</h2>
+        <div class="visor-controles">
+          <button type="button" class="btn" id="btnPaso">Siguiente consulta</button>
+          <button type="button" class="btn" id="btnLenta">Simular en cámara lenta</button>
+          <button type="button" class="btn" id="btnPausaLenta" aria-pressed="false" hidden>Pausar</button>
+          <button type="button" class="btn pri" id="btnHoraPunta">Simular hora punta</button>
+          <button type="button" class="btn" id="btnEscaneo">Simular escaneo</button>
+          <button type="button" class="btn btn-texto" id="btnDetener" hidden>Detener</button>
+        </div>
+      </div>
+      <div class="sim-linea">
+        <div class="progreso" aria-hidden="true"><i id="barraSim"></i></div>
+        <p class="nota sim-estado" id="txtSim" aria-live="polite">Siguiente consulta: una consulta animada paso a paso. Cámara lenta: 30 consultas 80/20 a 1 por segundo. Hora punta: 1000 consultas a velocidad real. Escaneo: 200 lugares únicos (el peor caso de LRU). Todas usan el servicio simulado, nunca Open-Meteo.</p>
+      </div>
+
+      <div class="visor">
+        <div class="visor-lista">
+          <div class="extremos"><span>Cabeza · más reciente</span><span>Cola · próximo a expulsar</span></div>
+          <div class="visor-escena" id="visorEscena">
+            <span class="visor-indicador" id="visorIndicador" hidden></span>
+            <div id="lista" class="lista2"></div>
+            <div class="lista-vacia" id="listaVacia" hidden>Caché vacío</div>
+          </div>
+          <div class="narrador">
+            <p id="narrador" class="narrador-actual origen"><span class="punto"></span><span>Esperando operaciones… Pulsa «Siguiente consulta», lanza una simulación o consulta un lugar desde la vista pública.</span></p>
+            <ul id="historial" class="narrador-historial"></ul>
+          </div>
+          <!-- Solo en hora punta / escaneo: tasa de aciertos en vivo y resumen final -->
+          <div class="visor-acelerado" id="panelAcelerado" hidden>
+            <div class="bloque-titulo">
+              <h3 class="k">Tasa de aciertos en vivo</h3>
+              <span class="nota">se actualiza cada 300 ms</span>
+            </div>
+            <svg id="graficoVivo" class="grafico grafico-vivo" viewBox="0 0 600 120" role="img" aria-label="Línea de la tasa de aciertos durante la simulación"></svg>
+            <div class="resumen-acelerado" id="resumenAcelerado" hidden>
+              <p id="resumenTxt" class="resumen-txt"></p>
+              <button type="button" class="btn" id="btnRepetir">Repetir las últimas 10 en cámara lenta</button>
+            </div>
+          </div>
+        </div>
+
+        <aside class="tabla-hash" aria-label="Tabla hash">
+          <div class="bloque-titulo">
+            <h3>Tabla hash (dict)</h3>
+            <span class="nota" id="hashCuenta"></span>
+          </div>
+          <p class="nota">Cada clave apunta directo a su nodo: encontrarlo es O(1), sin recorrer la lista. Pasa el mouse por una fila.</p>
+          <ul id="tablaHash" class="hash-filas"></ul>
+        </aside>
+      </div>
+    </section>
+
+    <div class="dos-col">
+      <section class="seccion">
+        <h2>Configuración</h2>
+        <div class="controles">
+          <div class="campo">
+            <label for="inCapacidad">Capacidad</label>
+            <input id="inCapacidad" class="input input-num" type="number" min="1" max="1000" step="1">
+          </div>
+          <div class="campo">
+            <label for="inTtl">TTL (segundos)</label>
+            <input id="inTtl" class="input input-num" type="number" min="1" max="86400" step="1">
+          </div>
+          <div class="interruptor-fila">
+            <span class="interruptor"><input id="inSinConexion" type="checkbox" role="switch"><span></span></span>
+            <label for="inSinConexion">Modo sin conexión</label>
+          </div>
+          <div class="campo">
+            <label for="inLatencia">Latencia simulada (ms)</label>
+            <input id="inLatencia" class="input input-num" type="number" min="0" max="5000" step="10">
+          </div>
+        </div>
+        <div class="controles-pie">
+          <button type="button" class="btn" id="btnVaciar">Vaciar caché</button>
+        </div>
+      </section>
+
+      <!-- Dinámica con el público: solo cuenta consultas reales desde "Iniciar dinámica" -->
+      <section class="seccion sala" id="sala" aria-labelledby="tituloSala">
+        <div class="bloque-titulo">
+          <h2 id="tituloSala">Resumen de la sala</h2>
+          <div class="sala-botones">
+            <button type="button" class="btn" id="btnDinamica">Iniciar dinámica</button>
+            <button type="button" class="btn btn-icono" id="btnPantalla" aria-label="Ver a pantalla completa" title="Pantalla completa">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+            </button>
+          </div>
+        </div>
+        <p class="nota" id="salaDesde">Pulsa «Iniciar dinámica» para empezar a contar las consultas del público.</p>
+        <div class="sala-numeros">
+          <div><span class="k">Consultas del público</span><span class="big" id="sConsultas">0</span></div>
+          <div><span class="k">Respondidas por el caché</span><span class="big" id="sAciertos">0</span><span class="nota" id="sTasa"></span></div>
+          <div><span class="k">Llamadas a la API evitadas</span><span class="big" id="sEvitadas">0</span></div>
+          <div><span class="k">Tiempo de espera ahorrado</span><span class="big"><span id="sAhorro">0.0</span><span class="big-sub"> s</span></span></div>
+        </div>
+      </section>
+    </div>
+
+    <section class="seccion" aria-label="Registro de consultas">
+      <div class="bloque-titulo">
+        <h2>Registro de consultas</h2>
+        <span class="nota">últimas 20, en vivo · «pionera» = la primera consulta de ese lugar (fue a la API)</span>
+      </div>
+      <div class="tabla-scroll">
+        <table class="tabla">
+          <thead><tr><th>Hora</th><th>Lugar</th><th>Quién</th><th>Clave</th><th>Origen</th><th class="num">Tiempo</th></tr></thead>
+          <tbody id="registro"><tr><td colspan="6" class="tabla-vacia">Sin consultas todavía</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===================== Benchmark ===================== -->
+  <div id="vistaBench" role="tabpanel" aria-labelledby="tabBench" hidden>
+    <p id="benchVacio" class="nota bench-vacio" hidden></p>
+    <div id="benchContenido" hidden>
+      <p class="nota" id="benchConfig"></p>
+      <div class="dos-col">
+        <section class="seccion">
+          <h2>Latencia promedio por consulta</h2>
+          <svg id="gLatencia" class="grafico" viewBox="0 0 640 260" role="img" aria-label="Barras de latencia promedio por escenario"></svg>
+          <p class="nota interpretacion" id="iLatencia"></p>
+        </section>
+        <section class="seccion">
+          <h2>Tasa de aciertos vs. capacidad</h2>
+          <svg id="gTasa" class="grafico" viewBox="0 0 640 260" role="img" aria-label="Línea de tasa de aciertos según la capacidad"></svg>
+          <p class="nota interpretacion" id="iTasa"></p>
+        </section>
+      </div>
+      <section class="seccion">
+        <div class="bloque-titulo">
+          <h2>Prueba de O(1): tiempo por operación vs. tamaño del caché</h2>
+          <span class="nota" id="nComplejidad"></span>
+        </div>
+        <svg id="gComplejidad" class="grafico grafico-ancho" viewBox="0 0 900 280" role="img" aria-label="Tiempo promedio de obtener y guardar según el tamaño del caché"></svg>
+        <p class="nota interpretacion" id="iComplejidad"></p>
+      </section>
+      <section class="seccion">
+        <h2>Resultados</h2>
+        <div class="tabla-scroll">
+          <table class="tabla">
+            <thead><tr><th>Escenario</th><th class="num">Tiempo total</th><th class="num">Latencia promedio</th><th class="num">Tasa de aciertos</th><th class="num">Llamadas a la API</th></tr></thead>
+            <tbody id="benchTabla"></tbody>
+          </table>
+        </div>
+        <p class="nota">Gráficos en PNG (para el informe): <span id="benchPng"></span></p>
+      </section>
+    </div>
+  </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/api.js') }}"></script>
+<script src="{{ url_for('static', filename='js/visor_lista.js') }}"></script>
+<script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+{% endblock %}

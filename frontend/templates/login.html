@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block titulo %}Nimbus · Acceso{% endblock %}
+
+{% block contenido %}
+<main class="login">
+  <form class="login-form" id="formLogin" novalidate>
+    <div class="login-marca">
+      <img src="{{ url_for('static', filename='img/logo.svg') }}" alt="" width="32" height="32">
+      <span>Nimbus</span>
+    </div>
+    <h1>Acceso de administrador</h1>
+    <p class="login-error" role="alert" id="loginError" hidden></p>
+    <div class="campo">
+      <label for="usuario">Usuario</label>
+      <input id="usuario" name="usuario" class="input" type="text" autocomplete="username" required>
+    </div>
+    <div class="campo">
+      <label for="clave">Contraseña</label>
+      <input id="clave" name="clave" class="input" type="password" autocomplete="current-password" required>
+    </div>
+    <button type="submit" class="btn pri btn-ancho" id="btnIngresar">Ingresar</button>
+  </form>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/api.js') }}"></script>
+<script>
+  // POST /admin/login con JSON; si responde bien, vamos al panel
+  document.getElementById('formLogin').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const err = document.getElementById('loginError');
+    const btn = document.getElementById('btnIngresar');
+    btn.disabled = true;
+    err.hidden = true;
+    try {
+      await NimbusAPI.login(document.getElementById('usuario').value, document.getElementById('clave').value);
+      location.href = "{{ url_for('nimbus.admin') }}";
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.hidden = false;
+      btn.disabled = false;
+    }
+  });
+</script>
+{% endblock %}

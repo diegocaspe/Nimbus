@@ -1,0 +1,80 @@
+{
+  "fecha": "2026-11-09 02:18",
+  "configuracion": {
+    "consultas": 1000,
+    "lugares": 100,
+    "zipf_s": 1.1,
+    "semilla": 42,
+    "latencia_ms": 20
+  },
+  "escenarios": [
+    {
+      "nombre": "Sin caché",
+      "capacidad": 0,
+      "tiempo_total_s": 20.863,
+      "latencia_promedio_ms": 20.863,
+      "tasa_aciertos": 0.0,
+      "llamadas_api": 1000
+    },
+    {
+      "nombre": "Caché 5",
+      "capacidad": 5,
+      "tiempo_total_s": 15.279,
+      "latencia_promedio_ms": 15.279,
+      "tasa_aciertos": 29.5,
+      "llamadas_api": 705
+    },
+    {
+      "nombre": "Caché 10",
+      "capacidad": 10,
+      "tiempo_total_s": 11.402,
+      "latencia_promedio_ms": 11.402,
+      "tasa_aciertos": 47.7,
+      "llamadas_api": 523
+    },
+    {
+      "nombre": "Caché 20",
+      "capacidad": 20,
+      "tiempo_total_s": 7.771,
+      "latencia_promedio_ms": 7.771,
+      "tasa_aciertos": 63.2,
+      "llamadas_api": 368
+    },
+    {
+      "nombre": "Caché 50",
+      "capacidad": 50,
+      "tiempo_total_s": 3.967,
+      "latencia_promedio_ms": 3.967,
+      "tasa_aciertos": 81.9,
+      "llamadas_api": 181
+    }
+  ],
+  "complejidad": [
+    {
+      "tamano": 10,
+      "obtener_us": 3.336,
+      "guardar_us": 3.77
+    },
+    {
+      "tamano": 100,
+      "obtener_us": 2.771,
+      "guardar_us": 3.744
+    },
+    {
+      "tamano": 1000,
+      "obtener_us": 3.543,
+      "guardar_us": 3.647
+    },
+    {
+      "tamano": 10000,
+      "obtener_us": 3.407,
+      "guardar_us": 3.984
+    },
+    {
+      "tamano": 100000,
+      "obtener_us": 4.155,
+      "guardar_us": 4.117
+    }
+  ],
+  "operaciones_complejidad": 10000
+}

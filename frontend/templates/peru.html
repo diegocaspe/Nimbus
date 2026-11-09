@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block titulo %}Nimbus · Perú{% endblock %}
+{% block body_class %}app-pantalla{% endblock %}
+
+{% block buscador %}
+<div class="buscador" data-buscador>
+  <label for="buscar" class="sr-only">Buscar departamento, provincia o distrito</label>
+  <div class="buscador-caja">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+    <input id="buscar" type="search" autocomplete="off" placeholder="Buscar departamento, provincia o distrito"
+           role="combobox" aria-expanded="false" aria-controls="sugerencias" aria-autocomplete="list">
+  </div>
+  <ul id="sugerencias" class="sugerencias" role="listbox" hidden></ul>
+</div>
+{% endblock %}
+
+{% block contenido %}
+<main class="escena escena-peru" id="escena">
+  <!-- Misma proyección ortográfica que el globo: el Perú se ve sobre la esfera, con la retícula. -->
+  <svg id="mapa" class="globo mapa3d" viewBox="0 0 1000 1000" role="img" aria-label="Mapa del Perú por departamentos, provincias y distritos">
+    <circle id="mOceano" cx="500" cy="500" class="g-oceano"/>
+    <path id="mReticula" class="g-reticula"/>
+    <path id="mReticulaFina" class="g-reticula fina"/>
+    <path id="mVecinos" class="g-tierra vecinos"/>
+    <path id="mLosa" class="peru-losa"/>
+    <g id="mRegiones"></g>
+    <path id="mLimProv" class="lim-prov"/>
+    <path id="mLimDep" class="lim-dep"/>
+    <path id="mSel" class="region-sel"/>
+    <path id="mHover" class="region-hover"/>
+    <path id="mGuias" class="guias"/>
+    <g id="mCache" class="g-cache"></g>
+    <g id="mEtiquetas" class="g-etiquetas"></g>
+    <circle id="mBorde" cx="500" cy="500" class="g-borde"/>
+  </svg>
+
+  <div id="cartel" class="cartel" role="tooltip" hidden></div>
+
+  <aside id="tarjeta" class="tarjeta" aria-label="Clima de la zona seleccionada" hidden></aside>
+
+  <div class="barra-mapa barra-flotante">
+    <nav id="migas" class="migas" aria-label="Migas de pan"></nav>
+    <span class="estado-mapa">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+      <span>Perú · <span id="nivelTxt">Departamentos</span></span>
+    </span>
+    <button type="button" class="btn btn-texto btn-solo-icono-movil" id="btnVolver" aria-label="Volver" disabled>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+      <span>Volver</span>
+    </button>
+    <button type="button" class="btn btn-toggle" id="btnCalor" aria-pressed="false">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z"/></svg>
+      <span id="btnCalorTxt">Mapa de calor</span>
+    </button>
+    <a href="{{ url_for('nimbus.inicio') }}" class="btn btn-solo-icono-movil" id="btnDesbloquear" aria-label="Desbloquear">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+      <span>Desbloquear</span>
+    </a>
+  </div>
+
+  <div class="mapa-ayuda">
+    <div class="leyenda-cache leyenda-cache-fija" aria-live="polite">
+      <span class="punto punto-cache" aria-hidden="true"></span>
+      <span>Guardado en caché · <span id="cacheCuenta">0 lugares</span></span>
+    </div>
+    <div id="leyendaCalor" class="leyenda-calor" hidden aria-label="Leyenda del mapa de calor">
+      <span class="leyenda-titulo">Temperatura actual</span>
+      <div class="leyenda-escala" id="leyendaEscala"></div>
+    </div>
+    <p id="avisoCalor" class="t-error" role="alert" hidden></p>
+    <span class="pista-mapa">Arrastra para mover · rueda para acercar · clic en una zona para ver su clima</span>
+  </div>
+
+  <div class="zoom-ctrl">
+    <button type="button" class="iconbtn" id="zoomMenos" aria-label="Alejar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+    <button type="button" class="iconbtn" id="zoomMas" aria-label="Acercar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+  </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/api.js') }}"></script>
+<script src="{{ url_for('static', filename='js/peru.js') }}"></script>
+{% endblock %}

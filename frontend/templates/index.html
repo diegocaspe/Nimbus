@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block titulo %}Nimbus{% endblock %}
+{% block body_class %}app-pantalla{% endblock %}
+
+{% block buscador %}
+<div class="buscador" data-buscador>
+  <label for="buscar" class="sr-only">Buscar ciudad, departamento o distrito</label>
+  <div class="buscador-caja">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+    <input id="buscar" type="search" autocomplete="off" placeholder="Buscar ciudad, departamento o distrito"
+           role="combobox" aria-expanded="false" aria-controls="sugerencias" aria-autocomplete="list">
+  </div>
+  <ul id="sugerencias" class="sugerencias" role="listbox" hidden></ul>
+</div>
+{% endblock %}
+
+{% block contenido %}
+<main class="escena">
+  <svg id="globo" class="globo" viewBox="0 0 1000 1000" role="img" aria-label="Globo terráqueo interactivo">
+    <circle id="gOceano" cx="500" cy="500" class="g-oceano"/>
+    <path id="gReticula" class="g-reticula"/>
+    <path id="gTierra" class="g-tierra"/>
+    <path id="gPeru" class="g-peru"/>
+    <!-- Privilegio de Perú: sus 25 departamentos encima del país al acercarse (globo.js) -->
+    <g id="gDeps" class="g-deps"></g>
+    <path id="gDepHover" class="g-dep-hover"/>
+    <path id="gCiudades" class="g-ciudades"/>
+    <path id="gGuias" class="guias g-guias"/>
+    <g id="gCache" class="g-cache"></g>
+    <g id="gEtiquetas" class="g-etiquetas"></g>
+    <g id="gPin" hidden>
+      <g class="pin-anim">
+        <circle r="14" class="pin-anillo"/>
+        <circle r="6" class="pin-punto"/>
+      </g>
+    </g>
+    <circle id="gBorde" cx="500" cy="500" class="g-borde"/>
+  </svg>
+
+  <div id="cartel" class="cartel" role="tooltip" hidden></div>
+
+  <aside id="tarjeta" class="tarjeta" aria-label="Clima del lugar seleccionado" hidden></aside>
+
+  <div class="leyenda-cache" aria-live="polite">
+    <span class="punto punto-cache" aria-hidden="true"></span>
+    <span>Guardado en caché · <span id="cacheCuenta">0 lugares</span></span>
+  </div>
+
+  <p class="pista">Arrastra para girar · rueda para acercar · clic para ver el clima</p>
+
+  <a href="{{ url_for('nimbus.peru') }}" class="btn pri btn-bloquear" id="btnBloquear">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+    <span>Bloquear en Perú</span>
+  </a>
+
+  <div class="zoom-ctrl">
+    <button type="button" class="iconbtn" id="zoomMenos" aria-label="Alejar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+    <button type="button" class="iconbtn" id="zoomMas" aria-label="Acercar"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="M12 5v14"/></svg></button>
+  </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/api.js') }}"></script>
+<script src="{{ url_for('static', filename='js/lugares.js') }}"></script>
+<script src="{{ url_for('static', filename='js/globo.js') }}"></script>
+{% endblock %}

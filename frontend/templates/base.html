@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}Nimbus{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='img/logo.svg') }}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/nimbus.css') }}">
+  <script>
+    // Aplica el tema antes de pintar para evitar parpadeo.
+    // Usa la elección guardada; si no hay, sigue la preferencia del sistema.
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem('nimbus-tema'); } catch (e) {}
+      if (t === null) t = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'oscuro' : 'claro';
+      if (t === 'oscuro') document.documentElement.classList.add('dark');
+    })();
+  </script>
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  <header class="nav">
+    <a class="marca" href="{{ url_for('nimbus.inicio') }}">
+      <img class="marca-logo" src="{{ url_for('static', filename='img/logo.svg') }}" alt="" width="28" height="28">
+      <span class="marca-nombre">Nimbus</span>
+    </a>
+
+    {% block buscador %}<span class="nav-espacio"></span>{% endblock %}
+
+    <nav class="nav-links" aria-label="Principal">
+      <a href="{{ url_for('nimbus.inicio') }}" class="navlink {% if pagina == 'inicio' %}on{% endif %}">Inicio</a>
+      <a href="{{ url_for('nimbus.admin') }}" class="navlink {% if pagina == 'admin' %}on{% endif %}">Administrador</a>
+      {% if session.get('admin') %}<a href="{{ url_for('nimbus.logout') }}" class="navlink">Cerrar sesión</a>{% endif %}
+      <button type="button" class="iconbtn" id="btnTema" aria-label="Cambiar a modo oscuro" title="Modo claro / oscuro">
+        <svg class="tema-luna" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>
+        <svg class="tema-sol" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+      </button>
+    </nav>
+  </header>
+
+  {% block contenido %}{% endblock %}
+
+  <script src="{{ url_for('static', filename='js/comun.js') }}"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>
