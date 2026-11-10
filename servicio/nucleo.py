@@ -115,9 +115,13 @@ class Nimbus:
         return respuesta
 
     def paso(self):
-        """Modo paso a paso: UNA consulta del tráfico simulado (80/20), siempre con el simulado."""
+        """Modo paso a paso: UNA consulta (lugar elegido con 80/20) a Open-Meteo REAL.
+
+        Sin `servicio`: usa el servicio activo con respaldo, igual que el público.
+        Si Open-Meteo falla o responde 429, pasa solo al simulado y deja el aviso.
+        """
         nombre, _, lat, lon = elegir_lugar_80_20(self._azar)
-        r = self.consultar_clima(lat, lon, nombre, servicio=self.simulado, origen_consulta=ORIGEN_PASO)
+        r = self.consultar_clima(lat, lon, nombre, origen_consulta=ORIGEN_PASO)
         return {"nombre": r["nombre"], "clave": r["clave"], "origen": r["origen"],
                 "tiempo_ms": r["tiempo_ms"], "ultima": self.cache.ultima_secuencia}
 

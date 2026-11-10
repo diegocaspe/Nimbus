@@ -26,6 +26,14 @@
    viaje, después el cambio en la lista. En hora punta / escaneo solo se
    actualizan sus contadores en cada tic de 300 ms.
 
+   VACIAR AL INSTANTE (botón "Vaciar caché" de la fila de simulaciones)
+   limpiar() borra la copia, la cola y el recorrido sin esperar al servidor.
+   Cada animación guarda un número de "generación" y lo revisa después de
+   cada espera: si limpiar() lo cambió, la animación se corta (CANCELADO).
+   pausarSondeo(true) ignora las respuestas del servidor mientras se detiene
+   la simulación y se vacía; al reanudar, la primera respuesta solo copia el
+   estado real (ya vacío) y se descartan los eventos viejos.
+
    La posición de un nodo se calcula aquí, recorriendo la copia: el backend
    NO la calcula porque eso haría O(n) a obtener(). Por eso el narrador
    siempre dice "Nodos recorridos: 0": el caché nunca recorre la lista.
@@ -49,6 +57,7 @@ window.VisorLista = (function () {
   const VIAJE = { paso: 1, lenta: 0.6, publico: 1, repeticion: 0.6 };
   const SIN_RECORRIDO = { acierto() {}, vencido() {}, fallo() {}, respuesta() {}, entrega() {}, contadores() {}, reiniciar() {}, esperandoA: () => false };
   const R = window.Recorrido || SIN_RECORRIDO;
+  const CANCELADO = R.CANCELADO || new Error('animación cancelada');
 
   let el = {};
   let alError = () => {};
@@ -72,6 +81,11 @@ window.VisorLista = (function () {
   const porBrillar = new Set();
   let sim = { en_curso: false, tipo: null, pausada: false };
 
+  // ----- Vaciar al instante -----
+  let gen = 0;                    // sube con limpiar(): las animaciones viejas se cortan
+  let congelado = false;          // true mientras se detiene la simulación y se vacía
+  let descartar = false;          // la próxima respuesta solo copia el estado (sin eventos viejos)
+
   const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
   const fmtMs = (n) => (n == null ? '—' : Number(n) < 1 ? Number(n).toFixed(3) : Number(n) < 10 ? Number(n).toFixed(1) : Math.round(Number(n)).toLocaleString('es-PE'));
   const copia = (lista) => lista.map((n) => ({ clave: n.clave, nombre: n.nombre, usos: n.usos }));
@@ -89,14 +103,17 @@ window.VisorLista = (function () {
   // ==========================================================
   async function sondear() {
     try {
-      if (!document.hidden) {
-        const r = await NimbusAPI.eventos(desde);
+      const g = gen;
+      const r = !document.hidden && !congelado ? await NimbusAPI.eventos(desde) : null;
+      // Si mientras llegaba la respuesta se vació el caché, la respuesta es vieja: se ignora
+      if (r && g === gen && !congelado) {
         capacidad = r.capacidad;
         ttlTotal = r.ttl;
         ultimoEstado = r.estado;
         actualizarVencimientos(r.estado);
-        if (desde === null) {
-          resincronizar(null);                       // primera vez: copiar el estado tal cual
+        if (desde === null || descartar) {
+          descartar = false;
+          resincronizar(null);                       // primera vez o tras vaciar: copiar el estado tal cual
         } else if (r.perdidos) {
           resincronizar('se perdieron eventos', cola.length);
         } else {
@@ -139,7 +156,9 @@ window.VisorLista = (function () {
       } else {
         pintarIndicador(NOMBRE_MODO[modo] + (modo === 'lenta' && sim.pausada ? ' · en pausa' : ''));
       }
-      try { await animar(ev, f, modo); } catch (e) { console.error(e); resincronizar('error al animar', cola.length); }
+      try { await animar(ev, f, modo); } catch (e) {
+        if (e !== CANCELADO) { console.error(e); resincronizar('error al animar', cola.length); }
+      }
     }
     reproduciendo = false;
     if (!acel && !repitiendo) pintarIndicador(sim.pausada ? 'Cámara lenta · en pausa' : '');
@@ -163,7 +182,8 @@ window.VisorLista = (function () {
   function duracion(ms) { el.escena.style.setProperty('--dur', Math.round(ms) + 'ms'); }
 
   async function animar(ev, f, modo) {
-    const T = (ms) => esperar(ms * f);
+    const g = gen;
+    const T = async (ms) => { await esperar(ms * f); if (g !== gen) throw CANCELADO; };
     const i = modelo.findIndex((n) => n.clave === ev.clave); // posición en la copia (O(n) aquí, nunca en el caché)
     const quien = NOMBRE_MODO[modo] || '';
     // Velocidad del viaje: la del modo, a la mitad si el público va ×2
@@ -452,9 +472,12 @@ window.VisorLista = (function () {
     narrar(`Repetición en cámara lenta de las últimas ${cuenta} consultas`, 'neutro');
     pintarIndicador('Repetición · cámara lenta');
     await esperar(800);
+    const g = gen;
     for (const h of tramo) {
-      try { await animar(h.ev, FACTOR.lenta, 'repeticion'); } catch (e) { console.error(e); break; }
+      if (g !== gen) break;
+      try { await animar(h.ev, FACTOR.lenta, 'repeticion'); } catch (e) { if (e !== CANCELADO) console.error(e); break; }
     }
+    if (g !== gen) { repitiendo = false; return; } // se vació el caché a mitad de la repetición
     // La repetición termina exactamente en el estado actual; si algo no cuadra, se corrige
     if (modelo.map((n) => n.clave).join('|') !== final.map((n) => n.clave).join('|')) {
       modelo = final;
@@ -704,8 +727,40 @@ window.VisorLista = (function () {
     if (!acel && !reproduciendo && !repitiendo) pintarIndicador(sim.pausada ? 'Cámara lenta · en pausa' : '');
   }
 
-  /** "Siguiente consulta": POST /admin/paso (una consulta simulada, se anima lenta). */
+  /** "Siguiente consulta": POST /admin/paso (una consulta a Open-Meteo, se anima lenta). */
   function paso() { return NimbusAPI.paso(); }
 
-  return { iniciar, estadoSimulacion, paso, repetirUltimas };
+  /**
+   * Deja la lista vacía YA: corta la animación en curso, vacía la cola de
+   * reproducción, el modo acelerado y el recorrido. No llama al servidor.
+   */
+  function limpiar(texto) {
+    gen++;
+    cola.length = 0;
+    R.reiniciar();
+    acel = null;
+    desfasado = false;
+    historia = [];
+    porBrillar.clear();
+    el.panelAcelerado.hidden = true;
+    el.resumen.hidden = true;
+    modelo = [];
+    ultimoEstado = [];
+    nodosDom.forEach((nodo) => nodo.remove());
+    nodosDom.clear();
+    marcarIndice(null);
+    marcarAusente(null);
+    duracion(0);
+    dibujar();
+    pintarIndicador('');
+    if (texto) narrar(texto, 'neutro');
+  }
+
+  /** true: ignora el servidor (se está vaciando). false: la próxima respuesta copia el estado real. */
+  function pausarSondeo(pausar) {
+    if (pausar) { congelado = true; gen++; }
+    else { congelado = false; descartar = true; }
+  }
+
+  return { iniciar, estadoSimulacion, paso, repetirUltimas, limpiar, pausarSondeo };
 })();

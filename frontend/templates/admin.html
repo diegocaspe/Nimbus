@@ -65,11 +65,11 @@
           <span class="rc-estado"></span>
         </div>
         <div class="rc-linea">
-          <span class="rc-cuenta origen origen-api" id="rcCuenta2" hidden><span class="punto"></span><span id="rcNum2">0</span><span class="rc-cuenta-txt" id="rcEtiquetaApi">a la API</span></span>
+          <span class="rc-cuenta origen origen-api" id="rcCuenta2" hidden><span class="punto"></span><span id="rcNum2">0</span><span class="rc-cuenta-txt">a la API</span></span>
         </div>
         <div class="rc-caja" id="rcApi">
-          <svg class="rc-icono" id="rcIconoApi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
-          <span class="rc-nombre" id="rcNombreApi">Open-Meteo (API)</span>
+          <svg class="rc-icono" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+          <span class="rc-nombre">Open-Meteo (API)</span>
           <span class="rc-estado"></span>
         </div>
       </div>
@@ -86,11 +86,19 @@
           <button type="button" class="btn pri" id="btnHoraPunta">Simular hora punta</button>
           <button type="button" class="btn" id="btnEscaneo">Simular escaneo</button>
           <button type="button" class="btn btn-texto" id="btnDetener" hidden>Detener</button>
+          <!-- Detiene la simulación en curso, vacía el caché y limpia la animación en un clic -->
+          <span class="con-aviso">
+          <button type="button" class="btn btn-peligro" id="btnVaciarYa" title="Detiene la simulación en curso, vacía el caché y limpia la animación">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+            Vaciar caché
+          </button>
+          <span class="aviso-corto" id="avisoVaciado" role="status" hidden>Caché vaciado</span>
+          </span>
         </div>
       </div>
       <div class="sim-linea">
         <div class="progreso" aria-hidden="true"><i id="barraSim"></i></div>
-        <p class="nota sim-estado" id="txtSim" aria-live="polite">Siguiente consulta: una consulta animada paso a paso. Cámara lenta: 30 consultas 80/20 a 1 por segundo. Hora punta: 1000 consultas a velocidad real. Escaneo: 200 lugares únicos (el peor caso de LRU). Todas usan el servicio simulado, nunca Open-Meteo.</p>
+        <p class="nota sim-estado" id="txtSim" aria-live="polite">Siguiente consulta y Cámara lenta consultan Open-Meteo real. Hora punta y Escaneo usan el servicio simulado para no superar el límite de la API.</p>
       </div>
 
       <div class="visor">

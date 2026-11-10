@@ -6,6 +6,7 @@
      GET  /admin/dinamica/resumen     "Resumen de la sala" (solo consultas del público)
      POST /admin/configuracion        capacidad, ttl, sin_conexion, latencia_ms
      POST /admin/metricas/reiniciar   métricas, tiempos y registro en cero
+     POST /admin/simulacion/detener   cancela la simulación (responde cuando su hilo terminó)
    Todas las horas que manda el backend ya vienen en hora de Lima (UTC-5).
      GET  /admin/benchmark            resultados del benchmark
    Las métricas se actualizan por polling cada ~1 s; la lista animada
@@ -50,7 +51,6 @@
     $('subTtl').textContent = Math.round(st.ttl);
     $('chipModo').classList.toggle('sin-conexion', !!st.sin_conexion);
     $('txtModo').textContent = st.sin_conexion ? `Sin conexión · API simulada (${st.latencia_ms} ms)` : 'Conectado a Open-Meteo';
-    Recorrido.configurar(st);   // con "sin conexión" la tercera caja dice "Servicio simulado"
 
     const c = st.comparacion || {};
     $('cCache').textContent = c.promedio_cache_ms == null ? '—' : Number(c.promedio_cache_ms).toFixed(c.promedio_cache_ms < 1 ? 3 : 1);
@@ -67,7 +67,7 @@
   // ---------- Recorrido de la consulta (Usuario → Caché → API) ----------
   Recorrido.iniciar({
     escena: $('rcEscena'), bolita: $('rcBolita'), usuario: $('rcUsuario'), cache: $('rcCache'), api: $('rcApi'),
-    nombreApi: $('rcNombreApi'), iconoApi: $('rcIconoApi'), etiquetaApi: $('rcEtiquetaApi'), texto: $('rcTexto'),
+    texto: $('rcTexto'),
     cuenta1: $('rcCuenta1'), cuenta2: $('rcCuenta2'), num1: $('rcNum1'), num2: $('rcNum2'),
   });
 
@@ -88,6 +88,37 @@
     try { await VisorLista.paso(); refrescar(); }
     catch (e) { fallar(e); }
     finally { setTimeout(() => { $('btnPaso').disabled = simulando; }, 600); }
+  });
+
+  // Vaciar caché desde la fila de simulaciones, en un clic:
+  //   1) la lista y el recorrido se limpian YA (sin esperar al servidor)
+  //   2) se detiene la simulación en curso (el backend espera a que su hilo termine)
+  //   3) se vacía el caché; la siguiente respuesta del sondeo solo copia el estado vacío
+  let avisoTimer = null;
+  function avisoVaciado() {
+    const a = $('avisoVaciado');
+    a.hidden = false;
+    clearTimeout(avisoTimer);
+    avisoTimer = setTimeout(() => { a.hidden = true; }, 2500);
+  }
+  $('btnVaciarYa').addEventListener('click', async () => {
+    const btn = $('btnVaciarYa');
+    btn.disabled = true;
+    VisorLista.pausarSondeo(true);
+    VisorLista.limpiar('Caché vaciado: el dict y la lista quedan vacíos.');
+    $('mTamano').textContent = '0';
+    $('mOcupacion').style.width = '0%';
+    avisoVaciado();
+    try {
+      pintarSimulacion(await NimbusAPI.detenerSimulacion());  // sin simulación en curso no hace nada
+      await NimbusAPI.vaciar();
+    } catch (e) {
+      fallar(e);
+    } finally {
+      VisorLista.pausarSondeo(false);
+      btn.disabled = false;
+      refrescar();
+    }
   });
 
   // ---------- Registro ----------

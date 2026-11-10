@@ -21,7 +21,7 @@ frontend/
 benchmark/
   benchmark.py          python -m benchmark.benchmark
   resultados/           latencia.png, tasa_aciertos.png, complejidad.png, resultados.json
-tests/                  pruebas pytest (73 casos)
+tests/                  pruebas pytest (78 casos)
 herramientas/           convertir_paises.py (datos del globo) y convertir_peru.py (límites INEI del Perú)
 informe.pdf             informe técnico (lo entrega el equipo)
 ```
@@ -94,7 +94,7 @@ Las pruebas cubren:
 - comparación contra `functools.lru_cache` con la misma secuencia de operaciones;
 - concurrencia con 8 hilos;
 - todas las rutas Flask con el servicio simulado;
-- el panel: cámara lenta con pausa y reanudación, que las simulaciones nunca llamen a Open-Meteo, el cambio automático al simulado ante un 429, la tarjeta «con caché vs. sin caché», la dinámica con el público y las consultas «pioneras»;
+- el panel: cámara lenta con pausa y reanudación, qué servicio usa cada botón (con un Open-Meteo falso, sin internet), detener una simulación en curso y vaciar, el cambio automático al simulado ante un 429, la tarjeta «con caché vs. sin caché», la dinámica con el público y las consultas «pioneras»;
 - el benchmark.
 
 Las pruebas usan su propia clave de administrador (`tests/conftest.py`) y no dependen de tu `.env`.
@@ -224,13 +224,16 @@ curl -b sesion.txt -X POST http://127.0.0.1:5000/admin/metricas/reiniciar
 curl -b sesion.txt http://127.0.0.1:5000/admin/registro
 
 # Simulaciones en segundo plano (responden 202; 409 si ya hay una en curso).
-# SIEMPRE usan el servicio simulado: nunca llaman a Open-Meteo.
+# Hora punta y escaneo usan el servicio SIMULADO (no superan el límite de Open-Meteo, 600 por minuto).
+# Cámara lenta consulta Open-Meteo REAL (30 consultas a 1 por segundo), con respaldo automático.
 curl -b sesion.txt -X POST http://127.0.0.1:5000/admin/simular/hora-punta     # 1000 consultas 80/20, 8 hilos
 curl -b sesion.txt -X POST http://127.0.0.1:5000/admin/simular/escaneo        # 200 lugares únicos
 curl -b sesion.txt -X POST http://127.0.0.1:5000/admin/simular/camara-lenta   # 30 consultas 80/20, 1 por segundo
 curl -b sesion.txt http://127.0.0.1:5000/admin/simulacion/estado
 curl -b sesion.txt -X POST http://127.0.0.1:5000/admin/simulacion/pausar
 curl -b sesion.txt -X POST http://127.0.0.1:5000/admin/simulacion/reanudar
+# Cancela la simulación en curso y responde cuando su hilo ya terminó (máximo 3 s):
+# así ninguna consulta en vuelo guarda datos después de un /vaciar.
 curl -b sesion.txt -X POST http://127.0.0.1:5000/admin/simulacion/detener
 
 # Dinámica con el público: pone en cero el "Resumen de la sala" / lo consulta
@@ -241,7 +244,8 @@ curl -b sesion.txt http://127.0.0.1:5000/admin/dinamica/resumen
 curl -b sesion.txt "http://127.0.0.1:5000/admin/eventos"            # solo estado + "ultima"
 curl -b sesion.txt "http://127.0.0.1:5000/admin/eventos?desde=120"  # eventos con secuencia > 120
 
-# Modo paso a paso: UNA consulta del tráfico simulado 80/20 (con el servicio simulado)
+# Modo paso a paso: UNA consulta (lugar elegido con 80/20) a Open-Meteo REAL.
+# Si Open-Meteo falla o responde 429, pasa solo al simulado y deja el aviso (502 solo si fallan los dos).
 curl -b sesion.txt -X POST http://127.0.0.1:5000/admin/paso
 
 # Resultados del benchmark y URLs de los gráficos
@@ -325,6 +329,17 @@ Con una lista simple, quitar un nodo del medio obligaría a recorrerla para enco
   - **Cámara lenta** (`simulacion-lenta`): 30 consultas 80/20 a 1 por segundo, con la misma animación más corta (unos 800 ms por evento). Se puede pausar y reanudar: la pausa detiene el hilo de la simulación en el servidor.
   - **Hora punta / escaneo** (`simulacion`): 1000 consultas a velocidad real. No se anima cada evento: la fila se redibuja cada 300 ms con transiciones de posición, cada nodo muestra «consultado N veces» y brilla al recibir un acierto (máximo una vez cada 300 ms), y un gráfico muestra la tasa de aciertos en vivo. El indicador «Acelerado ×N» compara las consultas por segundo con la cámara lenta (1 por segundo). Al terminar aparecen el resumen («1000 consultas · 57 % aciertos · 172 s ahorrados») y el botón «Repetir las últimas 10 en cámara lenta», que vuelve a animar esas consultas desde una foto de la lista tomada antes de cada evento.
   - **Público** (`publico`): las consultas reales se animan de una en una; si se acumulan más de 15, se reproducen al doble de velocidad y el indicador muestra «×2».
-- **Simulaciones.** "Hora punta" envía 1000 consultas, el 80 % de ellas al 20 % de los lugares. "Escaneo" consulta 200 lugares únicos: es el peor caso de LRU, porque expulsa a las ciudades populares aunque vuelvan a pedirse. "Cámara lenta" envía 30 consultas 80/20 a 1 por segundo. Todas, y también «Siguiente consulta», usan siempre el servicio simulado para no gastar el límite de Open-Meteo.
+- **Simulaciones.** "Hora punta" envía 1000 consultas, el 80 % de ellas al 20 % de los lugares. "Escaneo" consulta 200 lugares únicos: es el peor caso de LRU, porque expulsa a las ciudades populares aunque vuelvan a pedirse. "Cámara lenta" envía 30 consultas 80/20 a 1 por segundo.
+
+  | Botón | Servicio |
+  |---|---|
+  | «Siguiente consulta» | Open-Meteo real |
+  | «Simular en cámara lenta» | Open-Meteo real |
+  | «Simular hora punta» | servicio simulado (no supera el límite de 600 consultas por minuto) |
+  | «Simular escaneo» | servicio simulado |
+  | Consultas del público | Open-Meteo real |
+
+  En modo normal, «Open-Meteo real» pasa al simulado solo si Open-Meteo falla o responde 429 (o si el administrador activa el modo sin conexión); el panel lo indica con el aviso de arriba. La tercera caja del «Recorrido de la consulta» siempre dice «Open-Meteo (API)»; en hora punta y escaneo no se anima, solo se muestran los contadores.
+- **«Vaciar caché» en la fila de simulaciones.** En un clic: la lista y el recorrido se limpian al instante en el navegador (se corta la animación en curso y se vacía la cola de reproducción), luego `POST /admin/simulacion/detener` cancela la simulación y espera a su hilo, y `POST /vaciar` borra los datos. El panel ignora las respuestas del sondeo que lleguen mientras tanto y, al terminar, copia el estado real (vacío). El botón «Vaciar caché» de Configuración sigue haciendo solo `POST /vaciar`.
 - **Respaldo ante fallas de Open-Meteo.** Si una consulta real falla o recibe 429, `Nimbus` pasa solo al servicio simulado, responde igual y deja un aviso que el panel muestra arriba.
 - **Dinámica con el público.** «Iniciar dinámica» pone en cero el «Resumen de la sala», que cuenta solo las consultas del público (no las simuladas) y se puede ver a pantalla completa. En el registro, la primera consulta de cada lugar se marca como «pionera»: es la que fue a la API y dejó el dato en el caché para los demás.

@@ -304,6 +304,7 @@ def _lanzar(tipo):
 @rutas.post("/admin/simulacion/detener")
 @requiere_admin
 def admin_simulacion_detener():
+    """Cancela la simulación en curso y responde cuando su hilo ya terminó."""
     return jsonify({"ok": True, **nimbus().simulacion.detener()})
 
 
@@ -338,8 +339,11 @@ def admin_eventos():
 @rutas.post("/admin/paso")
 @requiere_admin
 def admin_paso():
-    """Ejecuta UNA consulta del tráfico simulado (modo paso a paso)."""
-    return jsonify({"ok": True, **nimbus().paso()})
+    """Ejecuta UNA consulta (lugar elegido con 80/20) contra Open-Meteo real."""
+    try:
+        return jsonify({"ok": True, **nimbus().paso()})
+    except ErrorServicioExterno as e:
+        return error(str(e), 502)
 
 
 @rutas.post("/admin/simular/hora-punta")

@@ -115,20 +115,69 @@ def test_detener_despierta_una_simulacion_en_pausa(monkeypatch):
 
 
 # ----------------------------------------------------------------------
-# Seguridad de la API: las simulaciones nunca llaman a Open-Meteo
+# Qué servicio usa cada botón (Open-Meteo falso: nunca se sale a internet)
 # ----------------------------------------------------------------------
-def test_simulaciones_nunca_usan_open_meteo(tmp_path, sin_pausas):
+def test_hora_punta_y_escaneo_nunca_usan_open_meteo(tmp_path):
     real = ServicioRealContado()
     app, cliente = crear(tmp_path, SIN_CONEXION=False, SERVICIO_REAL=real)
     assert cliente.post("/admin/simular/hora-punta").status_code == 202
     assert cliente.post("/admin/simular/escaneo").status_code == 202
-    assert cliente.post("/admin/simular/camara-lenta").status_code == 202
-    for _ in range(5):
-        assert cliente.post("/admin/paso").status_code == 200
     assert real.llamadas == 0
     # El público sí usa Open-Meteo (Madrid: ningún tráfico simulado lo consulta, así que no está en el caché)
     cliente.get("/clima?lat=40.42&lon=-3.70&nombre=Madrid")
     assert real.llamadas == 1
+
+
+def test_siguiente_consulta_usa_open_meteo_real(tmp_path):
+    real = ServicioRealContado()
+    app, cliente = crear(tmp_path, SIN_CONEXION=False, SERVICIO_REAL=real)
+    r = cliente.post("/admin/paso").get_json()
+    assert r["ok"] and r["origen"] == "api"      # caché vacío: fallo, va a la API
+    assert real.llamadas == 1                    # ...y la API es Open-Meteo (el falso), no el simulado
+    assert app.extensions["nimbus"].sin_conexion is False
+    eventos = cliente.get("/admin/eventos?desde=0").get_json()["eventos"]
+    assert all(e["origen"] == "simulacion-paso" for e in eventos)  # el panel lo sigue animando lento
+
+
+def test_camara_lenta_usa_open_meteo_real(tmp_path, sin_pausas):
+    real = ServicioRealContado()
+    app, cliente = crear(tmp_path, SIN_CONEXION=False, SERVICIO_REAL=real)
+    assert cliente.post("/admin/simular/camara-lenta").status_code == 202
+    estado = cliente.get("/admin/simulacion/estado").get_json()
+    assert estado["hechas"] == 30 and estado["error"] is None
+    assert real.llamadas == estado["fallos"] > 0  # cada fallo fue una llamada a Open-Meteo
+
+
+def test_siguiente_consulta_con_open_meteo_caido_usa_el_respaldo(tmp_path):
+    app, cliente = crear(tmp_path, SIN_CONEXION=False, SERVICIO_REAL=ServicioReal429())
+    r = cliente.post("/admin/paso")
+    assert r.status_code == 200 and r.get_json()["origen"] == "api"
+    cfg = cliente.get("/admin/configuracion").get_json()
+    assert cfg["sin_conexion"] is True and cfg["aviso_api"]["mensaje"] == AVISO_API_CAIDA
+
+
+# ----------------------------------------------------------------------
+# Detener la simulación y vaciar (botón "Vaciar caché" de la fila de simulaciones)
+# ----------------------------------------------------------------------
+def test_detener_simulacion_en_curso_y_vaciar_deja_el_cache_en_cero(tmp_path, monkeypatch):
+    monkeypatch.setattr(simulaciones, "SEGUNDOS_CAMARA_LENTA", 0.05)
+    _, cliente = crear(tmp_path, SIMULACION_SINCRONA=False)      # corre de verdad en otro hilo
+    assert cliente.post("/admin/simular/camara-lenta").status_code == 202
+    time.sleep(0.2)
+    r = cliente.post("/admin/simulacion/detener").get_json()
+    assert r["ok"] and r["en_curso"] is False and r["detenida"] is True  # ya terminó al responder
+    assert r["hechas"] < r["total"]
+    assert cliente.post("/vaciar").get_json()["ok"] is True
+    time.sleep(0.15)                                             # nada sigue guardando datos
+    assert cliente.get("/estadisticas").get_json()["tamano"] == 0
+    # Y se puede lanzar otra simulación enseguida
+    assert cliente.post("/admin/simular/camara-lenta").status_code == 202
+    cliente.post("/admin/simulacion/detener")
+
+
+def test_detener_pide_login(tmp_path):
+    cliente = crear_app({"TESTING": True, "DIR_BENCHMARK": str(tmp_path)}).test_client()
+    assert cliente.post("/admin/simulacion/detener").status_code == 401
 
 
 def test_429_cambia_al_simulado_y_avisa(tmp_path):

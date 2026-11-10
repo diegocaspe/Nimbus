@@ -1,12 +1,16 @@
 """Simulaciones de tráfico para el panel: "hora punta", "escaneo" y "cámara lenta".
 
-Corren en un hilo en segundo plano y SIEMPRE usan el servicio SIMULADO
-(nunca Open-Meteo), para no gastar su límite de consultas.
+Corren en un hilo en segundo plano.
   - hora punta:   1000 consultas 80/20 a velocidad real ("rapida": 8 hilos
                   consultan EL MISMO caché a la vez; demuestra que CacheLRU es
                   seguro con concurrencia gracias a su threading.Lock).
   - escaneo:      200 lugares únicos (peor caso de LRU).
   - cámara lenta: 30 consultas 80/20, 1 por segundo, con pausa y reanudación.
+
+Hora punta y escaneo usan SIEMPRE el servicio SIMULADO: harían cientos de
+llamadas en segundos y superarían el límite de Open-Meteo (600 por minuto).
+Cámara lenta (30 consultas a 1 por segundo) consulta Open-Meteo REAL, con el
+mismo respaldo automático al simulado que las consultas del público.
 
 Cada modo marca sus eventos con un origen distinto para que el panel sepa
 cómo animarlos: "simulacion" (acelerado), "simulacion-lenta" y
@@ -26,6 +30,7 @@ CONSULTAS_ESCANEO = 200
 CONSULTAS_CAMARA_LENTA = 30
 SEGUNDOS_CAMARA_LENTA = 1.0          # 1 consulta por segundo
 HILOS = 8
+SEGUNDOS_ESPERA_DETENER = 3.0        # detener() espera a que el hilo termine (consultas en vuelo)
 VELOCIDADES = ("rapida", "presentacion")
 SEGUNDOS_POR_CONSULTA_PRESENTACION = 0.5  # ≈ 2 consultas por segundo
 
@@ -79,6 +84,7 @@ class Simulacion:
         self._detener = threading.Event()  # bandera para cortar la simulación
         self._continuar = threading.Event()  # despejada = en pausa
         self._continuar.set()
+        self._hilo = None
         self._estado = self._estado_vacio()
 
     @staticmethod
@@ -120,7 +126,10 @@ class Simulacion:
         self._detener.clear()
         self._continuar.set()
 
-        hilo = threading.Thread(target=self._correr, args=(nimbus, lugares, pausa, origen), daemon=True)
+        # Solo la cámara lenta va a Open-Meteo real (servicio=None: el activo, con respaldo)
+        servicio = None if tipo == "camara_lenta" else nimbus.simulado
+        hilo = threading.Thread(target=self._correr, args=(nimbus, lugares, pausa, origen, servicio), daemon=True)
+        self._hilo = hilo
         hilo.start()
         if esperar:
             hilo.join()
@@ -140,16 +149,24 @@ class Simulacion:
             self._estado["pausada"] = False
         return self.estado()
 
-    def detener(self):
-        """Pide que la simulación en curso termine (las consultas pendientes se saltan)."""
+    def detener(self, espera_s=SEGUNDOS_ESPERA_DETENER):
+        """Cancela la simulación en curso y espera a que su hilo termine.
+
+        Las consultas pendientes se saltan. Esperar al hilo (máximo `espera_s`)
+        asegura que ninguna consulta que estaba en vuelo guarde datos DESPUÉS
+        de que el panel vacíe el caché.
+        """
         self._detener.set()
         self._continuar.set()  # si estaba en pausa, la despierta para que pueda terminar
         with self._candado:
             if self._estado["en_curso"]:
                 self._estado["detenida"] = True
+        hilo = self._hilo
+        if hilo is not None and hilo is not threading.current_thread():
+            hilo.join(espera_s)
         return self.estado()
 
-    def _correr(self, nimbus, lugares, pausa, origen):
+    def _correr(self, nimbus, lugares, pausa, origen, servicio):
         inicio = time.perf_counter()
 
         def una(lugar):
@@ -160,8 +177,9 @@ class Simulacion:
                 return
             t0 = time.perf_counter()
             nombre, _, lat, lon = lugar
-            # servicio=nimbus.simulado: las simulaciones NUNCA llaman a Open-Meteo
-            r = nimbus.consultar_clima(lat, lon, nombre, servicio=nimbus.simulado,
+            # servicio=nimbus.simulado (hora punta / escaneo) nunca llama a Open-Meteo;
+            # servicio=None (cámara lenta) usa Open-Meteo con respaldo automático
+            r = nimbus.consultar_clima(lat, lon, nombre, servicio=servicio,
                                        origen_consulta=origen)
             with self._candado:
                 self._estado["hechas"] += 1
@@ -174,7 +192,7 @@ class Simulacion:
         try:
             with ThreadPoolExecutor(max_workers=1 if pausa else HILOS) as grupo:
                 list(grupo.map(una, lugares))
-        except Exception as e:  # no debería pasar con el servicio simulado
+        except Exception as e:  # p. ej. Open-Meteo y el simulado fallaron a la vez
             with self._candado:
                 self._estado["error"] = str(e)
         finally:
