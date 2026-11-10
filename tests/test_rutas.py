@@ -78,7 +78,45 @@ def test_estadisticas_y_vaciar(cliente):
     assert st["nodos"][0]["nombre"] == "Lima"
     assert cliente.post("/vaciar").get_json()["ok"] is True
     st = cliente.get("/estadisticas").get_json()
-    assert st["tamano"] == 0 and st["aciertos"] == 0
+    assert st["tamano"] == 0 and st["aciertos"] == 1   # vaciar no toca las métricas
+
+
+def test_reiniciar_metricas_conserva_datos_y_configuracion(admin):
+    admin.post("/admin/configuracion", json={"capacidad": 4, "ttl": 90})
+    admin.get("/clima?lat=-12&lon=-77&nombre=Lima")
+    admin.get("/clima?lat=-12&lon=-77&nombre=Lima")
+    assert admin.post("/admin/metricas/reiniciar").get_json()["ok"] is True
+    st = admin.get("/estadisticas").get_json()
+    assert (st["aciertos"], st["fallos"], st["expulsiones"], st["expirados"]) == (0, 0, 0, 0)
+    assert st["soles_ahorrados"] == 0 and st["comparacion"]["ahorrado_ms"] == 0
+    assert (st["tamano"], st["capacidad"], st["ttl"]) == (1, 4, 90)
+    assert admin.get("/admin/registro").get_json()["consultas"] == []
+    assert admin.get("/clima?lat=-12&lon=-77").get_json()["origen"] == "cache"  # el dato sigue
+
+
+def test_horas_en_lima():
+    from datetime import datetime, timedelta, timezone
+
+    from servicio.nucleo import hora_lima
+    esperada = datetime.now(timezone.utc) - timedelta(hours=5)
+    h, m, _ = (int(x) for x in hora_lima().split(":"))
+    assert (h, m) in {(esperada.hour, esperada.minute),
+                      ((esperada + timedelta(minutes=1)).hour, (esperada + timedelta(minutes=1)).minute)}
+
+
+def test_lugar_por_geocodificacion_inversa(cliente):
+    # Sin conexión: el lugar conocido más cercano; lejos de todo, null (el mapa muestra las coordenadas)
+    assert cliente.get("/lugar?lat=-12.06&lon=-77.03").get_json()["nombre"] == "Lima"
+    assert cliente.get("/lugar?lat=-14.9&lon=-101.7").get_json()["nombre"] is None
+    assert cliente.get("/lugar?lat=200&lon=0").status_code == 400
+    assert cliente.get("/lugar").status_code == 400
+
+
+def test_nombre_de_direccion_de_nominatim():
+    from servicio.servicio_clima import nombre_de_direccion
+    assert nombre_de_direccion({"address": {"city": "Manaos", "country": "Brasil"}}) == "Manaos, Brasil"
+    assert nombre_de_direccion({"address": {"state": "Amazonas", "country": "Brasil"}}) == "Amazonas, Brasil"
+    assert nombre_de_direccion({"error": "Unable to geocode"}) is None
 
 
 def test_servicio_real_caido_cambia_al_simulado(app, cliente):

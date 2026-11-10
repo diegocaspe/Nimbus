@@ -146,17 +146,34 @@ def test_tasa_sin_consultas_es_cero():
     assert CacheLRU(3).obtener_estadisticas()["tasa_aciertos"] == 0.0
 
 
-def test_vaciar_borra_todo_y_reinicia_metricas():
+def test_vaciar_borra_los_datos_pero_no_las_metricas():
     c = CacheLRU(2)
     c.guardar("a", 1)
     c.obtener("a")
+    c.obtener("x")
     c.vaciar()
     assert len(c) == 0
     assert c.obtener_estado() == []
     st = c.obtener_estadisticas()
-    assert st["aciertos"] == st["fallos"] == st["expulsiones"] == 0
+    assert (st["aciertos"], st["fallos"]) == (1, 1)   # las métricas siguen
     c.guardar("b", 2)                   # sigue funcionando después de vaciar
     assert c.obtener("b") == 2
+
+
+def test_reiniciar_metricas_no_toca_los_datos(reloj):
+    c = CacheLRU(1, ttl_segundos=10, reloj=reloj)
+    c.guardar("a", 1)
+    c.obtener("a")
+    c.obtener("x")
+    c.guardar("b", 2)                   # expulsa "a"
+    reloj.avanzar(11)
+    c.obtener("b")                      # vencida: expirados = 1
+    c.guardar("c", 3)
+    c.reiniciar_metricas()
+    st = c.obtener_estadisticas()
+    assert st["aciertos"] == st["fallos"] == st["expulsiones"] == st["expirados"] == 0
+    assert (st["tamano"], st["capacidad"], st["ttl"]) == (1, 1, 10)
+    assert c.obtener("c") == 3          # el dato sigue guardado
 
 
 def test_seguro_con_varios_hilos():

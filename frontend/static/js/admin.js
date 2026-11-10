@@ -5,6 +5,8 @@
      GET  /admin/simulacion/estado    progreso de la simulación
      GET  /admin/dinamica/resumen     "Resumen de la sala" (solo consultas del público)
      POST /admin/configuracion        capacidad, ttl, sin_conexion, latencia_ms
+     POST /admin/metricas/reiniciar   métricas, tiempos y registro en cero
+   Todas las horas que manda el backend ya vienen en hora de Lima (UTC-5).
      GET  /admin/benchmark            resultados del benchmark
    Las métricas se actualizan por polling cada ~1 s; la lista animada
    la maneja VisorLista (visor_lista.js) con su propio sondeo de 250 ms.
@@ -43,11 +45,12 @@
     $('mCapacidad').textContent = st.capacidad;
     $('mOcupacion').style.width = (st.capacidad ? (st.tamano / st.capacidad) * 100 : 0) + '%';
     $('mEvitadas').textContent = fmt(st.llamadas_api_evitadas);
-    $('mAhorro').textContent = `S/ ${Number(st.soles_ahorrados || 0).toFixed(2)} ahorrados (S/ ${st.costo_por_llamada} por llamada)`;
+    $('mAhorro').textContent = `S/ ${Number(st.soles_ahorrados || 0).toFixed(2)} ahorrados (estimado, suponiendo S/ ${Number(st.costo_por_llamada || 0).toFixed(2)} por llamada; Open-Meteo es gratuita)`;
     $('subCap').textContent = st.capacidad;
     $('subTtl').textContent = Math.round(st.ttl);
     $('chipModo').classList.toggle('sin-conexion', !!st.sin_conexion);
     $('txtModo').textContent = st.sin_conexion ? `Sin conexión · API simulada (${st.latencia_ms} ms)` : 'Conectado a Open-Meteo';
+    Recorrido.configurar(st);   // con "sin conexión" la tercera caja dice "Servicio simulado"
 
     const c = st.comparacion || {};
     $('cCache').textContent = c.promedio_cache_ms == null ? '—' : Number(c.promedio_cache_ms).toFixed(c.promedio_cache_ms < 1 ? 3 : 1);
@@ -57,9 +60,16 @@
 
     const aviso = st.aviso_api;
     $('avisoApi').hidden = !aviso;
-    if (aviso) $('avisoApi').textContent = `${aviso.mensaje} (desde las ${aviso.hora}: ${aviso.detalle}). Para volver a Open-Meteo, apaga «Modo sin conexión».`;
+    if (aviso) $('avisoApi').textContent = `${aviso.mensaje} (desde las ${aviso.hora}, hora de Lima: ${aviso.detalle}). Para volver a Open-Meteo, apaga «Modo sin conexión».`;
     if (document.activeElement !== $('inSinConexion')) $('inSinConexion').checked = !!st.sin_conexion;
   }
+
+  // ---------- Recorrido de la consulta (Usuario → Caché → API) ----------
+  Recorrido.iniciar({
+    escena: $('rcEscena'), bolita: $('rcBolita'), usuario: $('rcUsuario'), cache: $('rcCache'), api: $('rcApi'),
+    nombreApi: $('rcNombreApi'), iconoApi: $('rcIconoApi'), etiquetaApi: $('rcEtiquetaApi'), texto: $('rcTexto'),
+    cuenta1: $('rcCuenta1'), cuenta2: $('rcCuenta2'), num1: $('rcNum1'), num2: $('rcNum2'),
+  });
 
   // ---------- Lista doblemente enlazada ----------
   VisorLista.iniciar({
@@ -141,7 +151,7 @@
     $('sEvitadas').textContent = fmt(d.llamadas_api_evitadas);
     $('sAhorro').textContent = fmtSeg(d.ahorrado_ms);
     $('salaDesde').textContent = d.activa
-      ? `Contando las consultas del público desde las ${d.inicio} (las simulaciones no cuentan).`
+      ? `Contando las consultas del público desde las ${d.inicio}, hora de Lima (las simulaciones no cuentan).`
       : 'Pulsa «Iniciar dinámica» para empezar a contar las consultas del público.';
     $('btnDinamica').textContent = d.activa ? 'Reiniciar dinámica' : 'Iniciar dinámica';
   }
@@ -199,8 +209,14 @@
   $('inTtl').addEventListener('change', (e) => configurar({ ttl: Number(e.target.value) }));
   $('inLatencia').addEventListener('change', (e) => configurar({ latencia_ms: Number(e.target.value) }));
   $('inSinConexion').addEventListener('change', (e) => configurar({ sin_conexion: e.target.checked }));
+  // Vaciar: borra solo los datos guardados (las métricas siguen)
   $('btnVaciar').addEventListener('click', async () => {
-    try { await NimbusAPI.vaciar(); refrescar(); } catch (e) { mensaje(e.message); }
+    try { await NimbusAPI.vaciar(); refrescar(); } catch (e) { fallar(e); }
+  });
+  // Reiniciar métricas: contadores, promedios con/sin caché, tiempo ahorrado y registro en cero.
+  // No toca los datos guardados ni la configuración.
+  $('btnReiniciarMetricas').addEventListener('click', async () => {
+    try { await NimbusAPI.reiniciarMetricas(); refrescar(); } catch (e) { fallar(e); }
   });
 
   // ---------- Pestañas ----------

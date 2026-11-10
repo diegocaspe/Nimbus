@@ -20,6 +20,12 @@
                            fila se redibuja cada 300 ms, con un gráfico en vivo
                            de la tasa de aciertos y un brillo en los aciertos.
 
+   RECORRIDO DE LA CONSULTA (recorrido.js)
+   En los modos animados, antes de mover un nodo se anima el viaje de la
+   consulta (Usuario → Caché → API) según el tipo de evento: primero el
+   viaje, después el cambio en la lista. En hora punta / escaneo solo se
+   actualizan sus contadores en cada tic de 300 ms.
+
    La posición de un nodo se calcula aquí, recorriendo la copia: el backend
    NO la calcula porque eso haría O(n) a obtener(). Por eso el narrador
    siempre dice "Nodos recorridos: 0": el caché nunca recorre la lista.
@@ -38,6 +44,11 @@ window.VisorLista = (function () {
   // Duración de cada etapa: el paso a paso es la referencia (1); el resto es una fracción
   const FACTOR = { paso: 1, lenta: 0.4, publico: 0.5 };
   const NOMBRE_MODO = { paso: 'Paso a paso', lenta: 'Cámara lenta', publico: 'Público', repeticion: 'Repetición' };
+  // Velocidad del viaje en el diagrama del recorrido (1 = ~1 s un acierto, ~2 s un fallo).
+  // La cámara lenta llega a 1 consulta por segundo: su viaje es algo más corto para no atrasarse.
+  const VIAJE = { paso: 1, lenta: 0.6, publico: 1, repeticion: 0.6 };
+  const SIN_RECORRIDO = { acierto() {}, vencido() {}, fallo() {}, respuesta() {}, entrega() {}, contadores() {}, reiniciar() {}, esperandoA: () => false };
+  const R = window.Recorrido || SIN_RECORRIDO;
 
   let el = {};
   let alError = () => {};
@@ -137,6 +148,7 @@ window.VisorLista = (function () {
   /** Vacía la cola y copia el estado real de la lista (sin animar lo omitido). */
   function resincronizar(motivo, omitidos) {
     cola.length = 0;
+    R.reiniciar();
     modelo = copia(ultimoEstado);
     nodosDom.forEach((nodo) => nodo.remove());
     nodosDom.clear();
@@ -154,11 +166,14 @@ window.VisorLista = (function () {
     const T = (ms) => esperar(ms * f);
     const i = modelo.findIndex((n) => n.clave === ev.clave); // posición en la copia (O(n) aquí, nunca en el caché)
     const quien = NOMBRE_MODO[modo] || '';
+    // Velocidad del viaje: la del modo, a la mitad si el público va ×2
+    const v = (VIAJE[modo] || VIAJE.repeticion) * (FACTOR[modo] ? f / FACTOR[modo] : 1);
     duracion(700 * f);
 
     switch (ev.tipo) {
       case 'acierto': {
         if (i < 0) return resincronizar('desfase', cola.length);
+        await R.acierto(ev, v);          // primero el viaje: Usuario → Caché → Usuario
         const n = modelo[i];
         const nodo = nodosDom.get(n.clave);
         n.usos = ev.usos || n.usos + 1;
@@ -184,6 +199,7 @@ window.VisorLista = (function () {
 
       case 'actualizacion': {
         if (i < 0) return resincronizar('desfase', cola.length);
+        if (R.esperandoA(ev.clave)) await R.entrega(ev, v); // otra consulta ya la había guardado
         const n = modelo[i];
         expiraEn.set(n.clave, Date.now() + (ev.ttl || ttlTotal) * 1000);
         narrar(`${n.nombre} ya estaba: se renuevan su valor y su TTL, y pasa a la cabeza.${NR}`, 'neutro', quien);
@@ -194,6 +210,7 @@ window.VisorLista = (function () {
       }
 
       case 'fallo':
+        await R.fallo(ev, v);            // Usuario → Caché ("no está") → API, que queda esperando
         marcarAusente(ev.clave);
         narrar(`${ev.nombre} no estaba en el índice: hay que pedirla a la API.${NR}`, 'api', quien);
         await T(1000);
@@ -201,6 +218,7 @@ window.VisorLista = (function () {
 
       case 'insercion': {
         if (i >= 0) return resincronizar('desfase', cola.length);
+        if (R.esperandoA(ev.clave)) await R.entrega(ev, v); // API → Caché (copia) → Usuario
         modelo.unshift({ clave: ev.clave, nombre: ev.nombre, usos: 1 });
         if (!expiraEn.has(ev.clave)) expiraEn.set(ev.clave, Date.now() + (ev.ttl || ttlTotal) * 1000);
         marcarAusente(null);
@@ -216,6 +234,10 @@ window.VisorLista = (function () {
 
       case 'expulsion': {
         if (i < 0) return resincronizar('desfase', cola.length);
+        // Si la expulsión es para hacer sitio a un dato que volvía de la API, primero llega ese
+        // dato al caché (guardar() anota expulsión e inserción juntas: la inserción ya está en cola)
+        const entra = cola.find((e) => e.tipo === 'insercion');
+        if (entra && R.esperandoA(entra.clave)) await R.respuesta(entra, v);
         const n = modelo[i];
         const nodo = nodosDom.get(n.clave);
         // 1) la cola se marca en rojo  2) se mantiene 1 s  3) sale
@@ -233,6 +255,7 @@ window.VisorLista = (function () {
       case 'expirado':
       case 'eliminacion': {
         if (i < 0) return resincronizar('desfase', cola.length);
+        if (ev.tipo === 'expirado') await R.vencido(ev, v); // el caché la tenía, pero venció
         const n = modelo[i];
         const nodo = nodosDom.get(n.clave);
         nodo.classList.add('apagado');
@@ -278,6 +301,7 @@ window.VisorLista = (function () {
     el.resumen.hidden = true;
     el.panelAcelerado.hidden = false;
     pintarGrafico();
+    R.contadores(0, 0, nombreAcelerado(acel.tipo));
     narrar(`${sim.tipo === 'escaneo' ? 'Escaneo' : 'Hora punta'} a velocidad real: no se anima cada consulta; la fila se redibuja cada 300 ms y cada acierto hace brillar su nodo.`, 'neutro');
   }
 
@@ -357,6 +381,7 @@ window.VisorLista = (function () {
     // Tasa de aciertos acumulada de esta corrida
     if (acel.consultas) acel.puntos.push((acel.aciertos / acel.consultas) * 100);
     pintarGrafico();
+    R.contadores(acel.aciertos, acel.consultas - acel.aciertos, nombreAcelerado(acel.tipo));
     // ×N = consultas por segundo frente a la cámara lenta (1 por segundo)
     acel.marcas = acel.marcas.filter((t) => ahora - t < 1000);
     if (acel.marcas.length) acel.ritmo = acel.marcas.length;
@@ -365,15 +390,18 @@ window.VisorLista = (function () {
     if (!sim.en_curso && !quedanRapidos && ahora - acel.ultimo > QUIETO_MS) terminarAcelerado();
   }
 
+  const nombreAcelerado = (tipo) => (tipo === 'escaneo' ? 'Escaneo' : 'Hora punta');
+
   function terminarAcelerado() {
     const a = acel;
     acel = null;
+    R.contadores(a.aciertos, a.consultas - a.aciertos, nombreAcelerado(a.tipo));
     duracion(300);
     dibujar();
     const promApi = a.nApi ? a.msApi / a.nApi : 0;
     const ahorrado = Math.max(0, a.aciertos * promApi - a.msAciertos) / 1000;
     const tasa = a.consultas ? (a.aciertos / a.consultas) * 100 : 0;
-    const nombre = a.tipo === 'escaneo' ? 'Escaneo' : 'Hora punta';
+    const nombre = nombreAcelerado(a.tipo);
     el.resumenTxt.textContent = `${nombre}: ${a.consultas.toLocaleString('es-PE')} consultas · ${tasa.toFixed(0)} % aciertos · ${ahorrado.toFixed(1)} s ahorrados`;
     el.resumen.hidden = false;
     el.btnRepetir.disabled = !historia.some((h) => h.ev.tipo === 'acierto' || h.ev.tipo === 'fallo');

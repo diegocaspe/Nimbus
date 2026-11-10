@@ -17,11 +17,11 @@ servicio/
   lugares_peru.py       lugares del Perú con coordenadas (búsqueda sin internet)
 frontend/
   templates/            páginas Jinja: globo, mapa del Perú, login y panel
-  static/               CSS, JS (api.js es el único que habla con Flask; visor_lista.js anima la lista), imágenes y GeoJSON
+  static/               CSS, JS (api.js es el único que habla con Flask; visor_lista.js anima la lista; recorrido.js anima el viaje Usuario → Caché → API), imágenes y GeoJSON
 benchmark/
   benchmark.py          python -m benchmark.benchmark
   resultados/           latencia.png, tasa_aciertos.png, complejidad.png, resultados.json
-tests/                  pruebas pytest (68 casos)
+tests/                  pruebas pytest (73 casos)
 herramientas/           convertir_paises.py (datos del globo) y convertir_peru.py (límites INEI del Perú)
 informe.pdf             informe técnico (lo entrega el equipo)
 ```
@@ -125,7 +125,7 @@ curl "http://127.0.0.1:5000/clima?lat=-12.05&lon=-77.04&nombre=Lima"
 # Métricas del caché y estado de la lista (de cabeza a cola)
 curl http://127.0.0.1:5000/estadisticas
 
-# Vaciar el caché
+# Vaciar el caché: borra SOLO los datos guardados (las métricas siguen; ver /admin/metricas/reiniciar)
 curl -X POST http://127.0.0.1:5000/vaciar
 ```
 
@@ -160,8 +160,10 @@ Respuesta de `/estadisticas`:
 }
 ```
 
-- `comparacion` alimenta la tarjeta «Con caché vs. sin caché»: `veces_mas_rapido` = promedio API ÷ promedio caché; `ahorrado_ms` = aciertos × promedio API − tiempo real gastado en aciertos. `/vaciar` lo pone en cero.
+- `comparacion` alimenta la tarjeta «Con caché vs. sin caché»: `veces_mas_rapido` = promedio API ÷ promedio caché; `ahorrado_ms` = aciertos × promedio API − tiempo real gastado en aciertos. `/vaciar` no lo cambia; `/admin/metricas/reiniciar` lo pone en cero.
+- `soles_ahorrados` es un **estimado**: supone S/ 0.01 por llamada evitada, aunque Open-Meteo es gratuita.
 - `aviso_api` es `null` o `{"mensaje": "API no disponible: usando modo sin conexión", "detalle": "...", "hora": "14:02:11"}`.
+- Todas las horas que devuelve el backend (`aviso_api.hora`, `hora` del registro, `inicio` de la dinámica) están en **hora de Lima** (America/Lima, UTC-5), sin importar la zona del servidor.
 
 ### Mapa de calor
 
@@ -187,6 +189,18 @@ curl "http://127.0.0.1:5000/buscar?q=arequipa"
 
 En modo real usa la geocodificación de Open-Meteo. En modo sin conexión, o si no hay internet, busca en la lista local de lugares del Perú.
 
+### Nombre de un punto del mapa (geocodificación inversa)
+
+```bash
+curl "http://127.0.0.1:5000/lugar?lat=-3.1&lon=-60.0"
+# {"nombre": "Manaos, Brasil", "lat": -3.1, "lon": -60.0}
+```
+
+- Open-Meteo no tiene geocodificación inversa: en modo real se usa [Nominatim](https://nominatim.org/) (OpenStreetMap), con un User-Agent propio, máximo 1 consulta por segundo y los nombres ya pedidos guardados en un `dict` aparte (no es el caché LRU).
+- En modo sin conexión, o si Nominatim falla, devuelve el lugar de la lista local más cercano (dentro de 30 km). Una falla de Nominatim **no** activa el modo sin conexión.
+- `nombre` es `null` si no hay nombre (por ejemplo, en el mar). El globo muestra entonces el país o, si tampoco hay, «Lugar en -14.9, -101.7».
+- Errores: **400** si falta `lat`/`lon` o están fuera de rango.
+
 ### Administrador
 
 Todas las rutas `/admin/*` requieren sesión; sin sesión responden 401. Con curl, guarda la cookie de sesión con `-c` y envíala con `-b`:
@@ -201,7 +215,11 @@ curl -b sesion.txt -X POST -H "Content-Type: application/json" \
      -d '{"capacidad": 10, "ttl": 120, "sin_conexion": true, "latencia_ms": 300}' \
      http://127.0.0.1:5000/admin/configuracion
 
-# Últimas 20 consultas: hora, lugar, clave, origen ("cache"/"api"), tiempo_ms,
+# Poner en cero aciertos, fallos, expulsiones, expirados, tiempos con/sin caché y el registro.
+# No toca los datos guardados ni la configuración.
+curl -b sesion.txt -X POST http://127.0.0.1:5000/admin/metricas/reiniciar
+
+# Últimas 20 consultas: hora (de Lima), lugar, clave, origen ("cache"/"api"), tiempo_ms,
 # tipo ("publico"/"simulacion") y pionera (true = primera consulta de ese lugar, fue a la API)
 curl -b sesion.txt http://127.0.0.1:5000/admin/registro
 
@@ -286,7 +304,8 @@ lista:  [cabeza] ⇄ [Lima] ⇄ ... ⇄ [Arequipa] ⇄ [cola]
 | `obtener(clave)` | O(1) promedio | El `dict` encuentra el nodo con un hash. Moverlo a la cabeza solo reasigna 4 enlaces, porque el nodo conoce a su anterior y a su siguiente. |
 | `guardar(clave, valor)` | O(1) promedio | Busca en el `dict`. Si el caché está lleno, quita `cola.anterior` (acceso directo) y su clave del `dict`. Luego inserta el nodo nuevo al inicio. |
 | `eliminar(clave)` | O(1) promedio | Busca en el `dict` y desengancha el nodo. |
-| `vaciar()` | O(1) | Crea un `dict` y una lista nuevos. |
+| `vaciar()` | O(1) | Crea un `dict` y una lista nuevos. No cambia las métricas. |
+| `reiniciar_metricas()` | O(1) | Pone cuatro contadores en cero. No toca los datos. |
 | `cambiar_capacidad(n)` | O(k) | k es la cantidad de entradas que sobran; cada expulsión es O(1). |
 | `obtener_estadisticas()` | O(1) | Son contadores. |
 | `obtener_estado()` | O(n) | Recorre la lista. Solo se usa para mostrar el panel, nunca dentro de `obtener` ni `guardar`. |

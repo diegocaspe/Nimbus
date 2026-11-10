@@ -11,7 +11,7 @@ Servicio de clima con caché LRU propia (curso Algoritmos y Estructura de Datos 
 ## Convenciones del frontend
 - **Sin frameworks ni build:** HTML (Jinja), CSS y JavaScript normales.
 - **Idioma:** código, comentarios y textos de la interfaz en español.
-- **Colores:** solo mediante las variables CSS de `frontend/static/css/nimbus.css` (`:root` y `:root.dark`). Regla 60-30-10: `--color-acento` SOLO en la región seleccionada, el botón principal, el enlace/pestaña activa y el foco. `--color-cache`, `--color-api` y `--color-error` solo en el punto ● de la etiqueta de origen y en mensajes de error o sin conexión.
+- **Colores:** solo mediante las variables CSS de `frontend/static/css/nimbus.css` (`:root` y `:root.dark`). Regla 60-30-10: `--color-acento` SOLO en la región seleccionada, el botón principal, el enlace/pestaña activa y el foco. `--color-cache`, `--color-api` y `--color-error` solo en el punto ● de la etiqueta de origen y en mensajes de error o sin conexión. Única excepción: la franja «Recorrido de la consulta» (`recorrido.js`), donde la bolita y el borde de estado de las cajas usan `--color-cache`/`--color-api`.
 - **Animaciones:** discretas, 200–300 ms, solo opacidad y posición.
 - **Backend:** toda llamada pasa por `frontend/static/js/api.js` (`NimbusAPI`). Las páginas nunca hacen `fetch` directo.
 - **Contrato JSON:** documentado en `README.md`. Si cambia, actualiza `servicio/app.py`, `api.js` y el README juntos.

@@ -30,6 +30,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from cache import CacheLRU  # noqa: E402
 from servicio.lugares_peru import LUGARES_PERU  # noqa: E402
+from servicio.nucleo import ZONA_LIMA  # noqa: E402
 from servicio.servicio_clima import ServicioClimaSimulado, clave_de  # noqa: E402
 from servicio.simulaciones import trafico_escaneo  # noqa: E402
 
@@ -224,7 +225,7 @@ def main(argv=None):
     grafico_tasa(escenarios, CARPETA / "tasa_aciertos.png")
     grafico_complejidad(complejidad, CARPETA / "complejidad.png")
     resultados = {
-        "fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "fecha": datetime.now(ZONA_LIMA).strftime("%Y-%m-%d %H:%M") + " (hora de Lima)",
         "configuracion": {"consultas": args.consultas, "lugares": len(lugares), "zipf_s": ZIPF_S,
                           "semilla": args.semilla, "latencia_ms": args.latencia_ms},
         "escenarios": escenarios,

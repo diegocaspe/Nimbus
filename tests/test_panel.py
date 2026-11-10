@@ -65,7 +65,7 @@ def test_rutas_nuevas_piden_login(tmp_path):
     for metodo, ruta in [("post", "/admin/simular/camara-lenta"), ("post", "/admin/simulacion/pausar"),
                          ("post", "/admin/simulacion/reanudar"), ("post", "/admin/dinamica/iniciar"),
                          ("get", "/admin/dinamica/resumen"), ("post", "/admin/paso"),
-                         ("get", "/admin/eventos")]:
+                         ("get", "/admin/eventos"), ("post", "/admin/metricas/reiniciar")]:
         assert getattr(cliente, metodo)(ruta).status_code == 401, ruta
 
 
@@ -170,8 +170,12 @@ def test_comparacion_con_y_sin_cache(tmp_path):
     assert c["promedio_api_ms"] >= 20
     assert c["veces_mas_rapido"] > 1
     assert c["ahorrado_ms"] == pytest.approx(3 * c["promedio_api_ms"] - 3 * c["promedio_cache_ms"], abs=1)
-    cliente.post("/vaciar")
-    assert cliente.get("/estadisticas").get_json()["comparacion"]["respuestas_cache"] == 0
+    cliente.post("/vaciar")             # vaciar borra los datos, no los tiempos
+    assert cliente.get("/estadisticas").get_json()["comparacion"]["respuestas_cache"] == 3
+    assert cliente.post("/admin/metricas/reiniciar").get_json()["ok"] is True
+    c = cliente.get("/estadisticas").get_json()["comparacion"]
+    assert c["respuestas_cache"] == c["respuestas_api"] == 0 and c["ahorrado_ms"] == 0
+    assert c["promedio_api_ms"] is None
 
 
 # ----------------------------------------------------------------------

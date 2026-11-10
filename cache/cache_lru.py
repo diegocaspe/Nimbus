@@ -131,17 +131,25 @@ class CacheLRU:
             return True
 
     def vaciar(self):
-        """Borra todas las entradas y reinicia las métricas.
+        """Borra todas las entradas guardadas. Las métricas NO cambian.
 
         O(1) para nosotros: creamos un dict y una lista nuevos; los nodos
         viejos los libera el recolector de basura de Python. El registro de
         eventos NO se borra: el panel necesita ver el evento "vaciado".
+        Para poner los contadores en cero está reiniciar_metricas().
         """
         with self._candado:
             self._mapa = {}
             self._lista = ListaDoble()
-            self._reiniciar_metricas()
             self._anotar("vaciado", None, "", "admin")
+
+    def reiniciar_metricas(self):
+        """Pone en cero aciertos, fallos, expulsiones y expirados. O(1).
+
+        No toca los datos guardados ni la configuración.
+        """
+        with self._candado:
+            self._reiniciar_metricas()
 
     # ------------------------------------------------------------------
     # Configuración

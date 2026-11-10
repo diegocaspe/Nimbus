@@ -8,7 +8,7 @@ caché, registro, simulación y dinámica, independientes entre sí.
 import random
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from cache import CacheLRU
 
@@ -18,6 +18,15 @@ from .simulaciones import ORIGEN_PASO, Simulacion, elegir_lugar_80_20
 
 TAMANO_REGISTRO = 20
 AVISO_API_CAIDA = "API no disponible: usando modo sin conexión"
+
+# Lima está en UTC-5 todo el año (el Perú no usa horario de verano). Con un desfase
+# fijo no hace falta el paquete tzdata, que Windows no trae para zoneinfo.
+ZONA_LIMA = timezone(timedelta(hours=-5), "America/Lima")
+
+
+def hora_lima():
+    """Hora actual en Lima como "HH:MM:SS", sin importar la zona del servidor."""
+    return datetime.now(ZONA_LIMA).strftime("%H:%M:%S")
 
 
 class Nimbus:
@@ -55,7 +64,7 @@ class Nimbus:
         """
         self.sin_conexion = True
         self.aviso_api = {"mensaje": AVISO_API_CAIDA, "detalle": motivo,
-                          "hora": datetime.now().strftime("%H:%M:%S")}
+                          "hora": hora_lima()}
 
     def _con_respaldo(self, operacion):
         """Llama `operacion(servicio)` con el servicio activo; si Open-Meteo falla, reintenta con el simulado."""
@@ -127,12 +136,37 @@ class Nimbus:
         """
         return self._con_respaldo(lambda s: s.temperaturas(puntos))
 
+    def nombrar_lugar(self, lat, lon):
+        """Nombre del lugar en (lat, lon) por geocodificación inversa, o None.
+
+        No pasa por el caché LRU. Si el servicio real falla, se usa la lista
+        local, pero el sistema NO pasa al modo sin conexión: el nombre viene de
+        otro proveedor (Nominatim) y su falla no dice nada de Open-Meteo.
+        """
+        if not self.sin_conexion:
+            nombrar = getattr(self.real, "nombrar", None)
+            if nombrar is not None:
+                try:
+                    return nombrar(lat, lon)
+                except ErrorServicioExterno:
+                    pass
+        return self.simulado.nombrar(lat, lon)
+
     def vaciar(self):
-        """Vacía el caché y reinicia sus métricas, los tiempos y los lugares "pioneros"."""
+        """Borra SOLO los datos guardados en el caché. Métricas y registro no cambian."""
         self.cache.vaciar()
+
+    def reiniciar_metricas(self):
+        """Pone en cero las métricas, los tiempos con/sin caché y el registro.
+
+        No toca los datos guardados ni la configuración (capacidad, TTL, modo…).
+        """
+        self.cache.reiniciar_metricas()
         with self._candado_metricas:
             self._reiniciar_tiempos()
             self._lugares_vistos = set()
+        with self._candado_registro:
+            self._registro = []
 
     # ------------------------------------------------------------------
     # Configuración
@@ -211,7 +245,7 @@ class Nimbus:
     # ------------------------------------------------------------------
     @staticmethod
     def _dinamica_vacia(activa=True):
-        return {"activa": activa, "inicio": datetime.now().strftime("%H:%M:%S") if activa else None,
+        return {"activa": activa, "inicio": hora_lima() if activa else None,
                 "consultas": 0, "aciertos": 0, "ms_cache": 0.0}
 
     def iniciar_dinamica(self):
@@ -260,7 +294,7 @@ class Nimbus:
             pionera = origen == "api" and clave not in self._lugares_vistos
             self._lugares_vistos.add(clave)
         fila = {
-            "hora": datetime.now().strftime("%H:%M:%S"),
+            "hora": hora_lima(),
             "lugar": lugar,
             "clave": clave,
             "origen": origen,

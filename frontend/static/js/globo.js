@@ -434,8 +434,8 @@
   }
 
   // ---------- Clima ----------
-  /** Ciudad cercana al clic (el radio se achica con el zoom); si no hay, el país; si no, el punto. */
-  function nombrar(lat, lon) {
+  /** Ciudad conocida cercana al clic (el radio se achica con el zoom), o null. */
+  function ciudadCerca(lat, lon) {
     let mejor = null, dmin = 3.5 / estado.zoom;
     const sinPeru = modoPeru(); // con los departamentos a la vista, las ciudades de Perú están ocultas
     for (const p of CIUDADES) {
@@ -443,11 +443,32 @@
       const d = Math.hypot(p.lat - lat, (p.lon - lon) * Math.cos(lat * D));
       if (d < dmin) { dmin = d; mejor = p; }
     }
-    if (mejor) return mejor;
+    return mejor;
+  }
+  const redondear1 = (x) => (Math.round(x * 10) / 10 + 0).toFixed(1); // + 0 evita "-0.0"
+  /**
+   * Punto que no es un lugar conocido: geocodificación inversa en el backend (GET /lugar).
+   * Si no hay nombre (mar, sin conexión lejos del Perú…): el país; si tampoco, las coordenadas.
+   */
+  async function nombrarPunto(lat, lon) {
+    let nombre = null;
+    try { nombre = await NimbusAPI.nombrarLugar(lat, lon); } catch (e) { nombre = null; }
+    if (nombre) return { n: nombre, t: 'Lugar', lat, lon };
     const pais = paisEn(lat, lon);
-    return pais ? { n: pais.n, t: 'País', lat, lon } : { n: 'Punto seleccionado', t: '', lat, lon };
+    if (pais) return { n: pais.n, t: 'País', lat, lon };
+    return { n: `Lugar en ${redondear1(lat)}, ${redondear1(lon)}`, t: '', lat, lon };
+  }
+  let pedidoNombre = 0; // si se hace otro clic mientras llega el nombre, el viejo se ignora
+  async function abrirPunto(lat, lon) {
+    const mio = ++pedidoNombre;
+    estado.pin = { lat, lon };   // el pin aparece ya; la tarjeta, cuando llega el nombre
+    tarjetaAbierta = true;       // mientras tanto el globo no gira
+    dibujar();
+    const l = await nombrarPunto(lat, lon);
+    if (mio === pedidoNombre) abrirClima(l);
   }
   function abrirClima(lugar) {
+    pedidoNombre++; // un nombre que aún no llega ya no debe abrir otra tarjeta
     tarjetaAbierta = true;
     estado.pin = { lat: lugar.lat, lon: lugar.lon };
     pinAnim.classList.remove('pin-anim'); // reinicia la animación de caída del pin
@@ -517,7 +538,10 @@
       const d = dp ? DEPS[+dp.dataset.dep] : p && depEn(p.lat, p.lon);
       if (d) return abrirDepartamento(d);
     }
-    if (p) { const l = nombrar(p.lat, p.lon); abrirClima({ n: l.n, t: l.t, lat: l.lat, lon: l.lon }); }
+    if (!p) return;
+    const ciudad = ciudadCerca(p.lat, p.lon);
+    if (ciudad) abrirClima({ n: ciudad.n, t: ciudad.t, lat: ciudad.lat, lon: ciudad.lon });
+    else abrirPunto(p.lat, p.lon);
   }
   svg.addEventListener('pointerup', soltar);
   svg.addEventListener('pointercancel', soltar);

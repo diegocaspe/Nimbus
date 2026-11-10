@@ -449,7 +449,7 @@ svg { flex: none; }
 .bloque-titulo { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
 
 .controles { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 20px 24px; align-items: end; }
-.controles-pie { display: flex; }
+.controles-pie { display: flex; flex-wrap: wrap; gap: 8px; }
 .interruptor-fila { display: flex; align-items: center; gap: 10px; min-height: 40px; }
 .interruptor-fila label { font-size: 13px; line-height: 1.3; }
 .interruptor { position: relative; width: 32px; height: 18px; flex: none; }
@@ -605,6 +605,49 @@ svg { flex: none; }
 .comparacion-celdas .metrica { padding-top: 16px; }
 .comparacion-celdas .metrica:first-child { padding-left: 0; }
 
+/* Recorrido de la consulta (recorrido.js): [Usuario] ── [Caché LRU] ── [API]
+   La bolita pasa POR DEBAJO de las cajas (z-index), así solo se ve sobre las líneas.
+   Colores de estado solo en la bolita, en el borde de estado de la caja y en el punto de los contadores. */
+.recorrido { gap: 16px; }
+.rc-escena { position: relative; display: flex; align-items: center; padding: 32px 0 4px; }
+.rc-caja {
+  position: relative; z-index: 2; flex: none; width: clamp(80px, 17vw, 176px);
+  display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 8px 10px;
+  border: 1px solid var(--color-borde); border-radius: 6px; background: var(--color-superficie); text-align: center;
+}
+/* Estado de la caja: una capa encima de la que solo se anima la opacidad */
+.rc-caja::after {
+  content: ""; position: absolute; inset: -1px; border-radius: 6px; pointer-events: none; opacity: 0;
+  border: 1px solid var(--rc-color, transparent); background: color-mix(in srgb, var(--rc-color, transparent) 10%, transparent);
+  transition: opacity 200ms var(--ease);
+}
+.rc-caja.marca-cache { --rc-color: var(--color-cache); }
+.rc-caja.marca-api, .rc-caja.esperando { --rc-color: var(--color-api); }
+.rc-caja.marca-guardar { --rc-color: var(--color-texto-secundario); }
+.rc-caja.marca-cache::after, .rc-caja.marca-api::after, .rc-caja.marca-guardar::after { opacity: 1; }
+.rc-caja.esperando::after { animation: rcLatido 600ms var(--ease) infinite alternate; }   /* la API "late" mientras responde */
+.rc-icono { width: 20px; height: 20px; color: var(--color-texto-secundario); }
+.rc-nombre { font-size: 13px; font-weight: 500; line-height: 1.25; }
+.rc-estado { min-height: 16px; font-size: 11px; color: var(--color-texto-secundario); }
+.rc-caja.marca-cache .rc-estado, .rc-caja.marca-api .rc-estado, .rc-caja.esperando .rc-estado { color: var(--color-texto); }
+.rc-linea { position: relative; z-index: 0; flex: 1 1 0; min-width: 24px; height: 1px; background: var(--color-borde); }
+.rc-cuenta {
+  position: absolute; z-index: 3; bottom: 12px; left: 50%; transform: translateX(-50%); padding: 0 6px;
+  background: var(--color-fondo); color: var(--color-texto); font-size: 12px; white-space: nowrap; animation: aparecer 240ms var(--ease);
+}
+.rc-cuenta-txt { color: var(--color-texto-secundario); }
+.rc-bolita {
+  position: absolute; left: 0; top: 0; z-index: 1; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--color-texto); pointer-events: none; will-change: transform;
+}
+.rc-bolita.b-cache { background: var(--color-cache); }
+.rc-bolita.b-api { background: var(--color-api); }
+.recorrido-texto { min-height: 20px; font-size: 14px; color: var(--color-texto); align-items: baseline; }
+.recorrido-texto .punto { transform: translateY(-2px); }
+.recorrido-texto.punto-error .punto { background: var(--color-error); }
+@keyframes rcLatido { from { opacity: .2; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .rc-caja.esperando::after { animation: none; opacity: 1; } }
+
 /* Aviso de API caída */
 .aviso-api { padding-bottom: 16px; }
 
@@ -704,4 +747,8 @@ svg { flex: none; }
   .metrica:nth-child(3n+1) { padding-left: 16px; }
   .metrica:nth-child(odd) { padding-left: 0; }
   .big { font-size: 36px; }
+  /* Recorrido en celular: cajas más angostas y contadores solo con el número */
+  .rc-caja { width: 22vw; padding: 10px 4px 8px; }
+  .rc-nombre { font-size: 12px; }
+  .rc-cuenta-txt { display: none; }
 }

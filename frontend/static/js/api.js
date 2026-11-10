@@ -48,14 +48,19 @@ window.NimbusAPI = (function () {
     calor: (puntos) =>
       pedir('/calor?puntos=' + puntos.map(([la, lo]) => la.toFixed(3) + ',' + lo.toFixed(3)).join(';'))
         .then((r) => r.temperaturas || []),
-    /** POST /vaciar */
+    /** POST /vaciar -> borra solo los datos guardados */
     vaciar: () => enviar('/vaciar'),
+    /** GET /lugar -> nombre del lugar en esas coordenadas (geocodificación inversa) o null */
+    nombrarLugar: (lat, lon) =>
+      pedir(`/lugar?lat=${lat.toFixed(4)}&lon=${lon.toFixed(4)}`).then((r) => r.nombre || null),
 
     // ----- Administrador (requieren sesión) -----
     login: (usuario, clave) => enviar('/admin/login', { usuario, clave }),
     configuracion: () => pedir('/admin/configuracion'),
     configurar: (cambios) => enviar('/admin/configuracion', cambios),
     registro: () => pedir('/admin/registro').then((r) => r.consultas || []),
+    /** POST /admin/metricas/reiniciar -> métricas, tiempos y registro en cero (no toca los datos) */
+    reiniciarMetricas: () => enviar('/admin/metricas/reiniciar'),
     /** tipo: "hora_punta" | "escaneo" | "camara_lenta". Siempre usan el servicio simulado. */
     simular: (tipo, velocidad) => enviar({
       escaneo: '/admin/simular/escaneo', camara_lenta: '/admin/simular/camara-lenta',

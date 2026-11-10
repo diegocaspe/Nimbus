@@ -151,8 +151,22 @@ def estadisticas():
 
 @rutas.post("/vaciar")
 def vaciar():
+    """Borra solo los datos guardados; las métricas siguen (ver /admin/metricas/reiniciar)."""
     nimbus().vaciar()
     return jsonify({"ok": True, "mensaje": "Caché vaciado."})
+
+
+@rutas.get("/lugar")
+def lugar():
+    """Geocodificación inversa: /lugar?lat=..&lon=.. -> {"nombre": "Manaos, Brasil" | null, ...}"""
+    if "lat" not in request.args or "lon" not in request.args:
+        return error("Faltan los parámetros 'lat' y 'lon'. Ejemplo: /lugar?lat=-3.1&lon=-60.0")
+    try:
+        lat = leer_numero(request.args["lat"], "lat", -90, 90)
+        lon = leer_numero(request.args["lon"], "lon", -180, 180)
+    except ValueError as e:
+        return error(str(e))
+    return jsonify({"nombre": nimbus().nombrar_lugar(lat, lon), "lat": lat, "lon": lon})
 
 
 # ----------------------------------------------------------------------
@@ -262,6 +276,14 @@ def admin_configuracion():
 @requiere_admin
 def admin_registro():
     return jsonify({"consultas": nimbus().registro()})
+
+
+@rutas.post("/admin/metricas/reiniciar")
+@requiere_admin
+def admin_metricas_reiniciar():
+    """Pone en cero métricas, tiempos con/sin caché y registro; no toca datos ni configuración."""
+    nimbus().reiniciar_metricas()
+    return jsonify({"ok": True, "mensaje": "Métricas reiniciadas."})
 
 
 def _lanzar(tipo):

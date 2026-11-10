@@ -1,0 +1,254 @@
+/* =========================================================
+   Recorrido — animación del viaje de UNA consulta:
+
+       [ Usuario ] ──── [ Caché LRU ] ──── [ Open-Meteo (API) ]
+
+   QUIÉN LA DISPARA
+   VisorLista (visor_lista.js) reproduce los eventos REALES del caché en
+   orden. Antes de mover un nodo en la lista llama aquí, así primero se ve
+   el viaje y después el cambio en la lista. El tipo de evento es lo que
+   decide el camino (es el origen que devolvió el backend):
+
+     acierto              -> Usuario → Caché (brilla en verde) → Usuario       ~1 s
+     fallo ... insercion  -> Usuario → Caché (naranja, "no está") → API
+                             (late mientras espera) → Caché (guarda la copia)
+                             → Usuario                                         ~2 s
+     expirado + fallo     -> igual que el fallo, pero el caché dice "vencido"
+
+   Un fallo llega en DOS partes porque así pasa en el servidor: obtener()
+   anota "fallo", se llama a la API (tarda), y guardar() anota "insercion"
+   con el tiempo de la API. Mientras tanto la caja de la API late.
+
+   HORA PUNTA / ESCANEO
+   No se anima cada consulta: se muestran contadores encima de cada línea
+   (respondidas por el caché / fueron a la API) que se actualizan en vivo.
+
+   Las animaciones solo mueven la bolita (posición) y cambian opacidades.
+   ========================================================= */
+window.Recorrido = (function () {
+  const ESPERA_MAX_MS = 15000; // sin respuesta de la API en este tiempo: se deja de esperar
+  const ICONO_NUBE = '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>';
+  const ICONO_SERVIDOR = '<rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><path d="M6 6h.01"/><path d="M6 18h.01"/>';
+
+  let el = {};
+  let sinConexion = null;      // último valor recibido de la configuración
+  let simuladoActual = false;  // la caja de la API muestra hoy el servicio simulado
+  let bolitaEn = null;         // 'usuario' | 'cache' | 'api' | null (oculta)
+  let claveEnCache = null;     // clave cuya consulta dejó la bolita en el caché ("vencido")
+  const pendientes = new Map(); // clave -> { nombre, tipo, simulado, devuelta }: esperan a la API
+  let relojEspera = null;
+  let contando = false;
+  const reducido = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
+
+  const esperar = (ms) => new Promise((r) => setTimeout(r, ms));
+  const fmt = (n) => Math.round(Number(n) || 0).toLocaleString('es-PE');
+  const fmtMs = (n) => { const x = Number(n); return x < 0.01 ? x.toFixed(3) : x < 1 ? x.toFixed(2) : x < 10 ? x.toFixed(1) : Math.round(x).toLocaleString('es-PE'); };
+  // Las simulaciones SIEMPRE usan el servicio simulado; el público, el que esté activo
+  const esSimulado = (ev) => ev.origen !== 'publico';
+  const usaSimulado = (simulado) => simulado || sinConexion;
+  const aDonde = (simulado) => (usaSimulado(simulado) ? 'al servicio simulado' : 'a Open-Meteo');
+
+  // ---------- Dibujo ----------
+  function cajas() { return { usuario: el.usuario, cache: el.cache, api: el.api }; }
+
+  /** Centro de una caja, en coordenadas de la escena. */
+  function centro(nombre) {
+    const e = el.escena.getBoundingClientRect(), r = cajas()[nombre].getBoundingClientRect();
+    return { x: r.left - e.left + r.width / 2, y: r.top - e.top + r.height / 2 };
+  }
+  const tr = (p) => `translate(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px) translate(-50%, -50%)`;
+
+  function pintarApi(simulado) {
+    simuladoActual = !!usaSimulado(simulado);
+    el.nombreApi.textContent = simuladoActual ? 'Servicio simulado' : 'Open-Meteo (API)';
+    el.iconoApi.innerHTML = simuladoActual ? ICONO_SERVIDOR : ICONO_NUBE;
+    el.etiquetaApi.textContent = simuladoActual ? 'al servicio simulado' : 'a la API';
+  }
+
+  /** Marca una caja: 'cache' (verde), 'api' (naranja), 'guardar', 'espera' (late) o null. */
+  function marcar(nombre, tipo, texto) {
+    const caja = cajas()[nombre];
+    caja.classList.remove('marca-cache', 'marca-api', 'marca-guardar', 'esperando');
+    if (tipo) caja.classList.add(tipo === 'espera' ? 'esperando' : 'marca-' + tipo);
+    caja.querySelector('.rc-estado').textContent = texto || '';
+  }
+
+  function texto(clase, contenido) {
+    el.texto.className = 'recorrido-texto origen ' + (clase || '');
+    el.texto.lastChild.textContent = contenido;
+  }
+
+  /** La bolita viaja de una caja a otra. Pasa por DEBAJO de las cajas: solo se ve sobre las líneas. */
+  async function tramo(de, a, ms, color) {
+    const p0 = centro(de), p1 = centro(a);
+    el.bolita.className = 'rc-bolita ' + color;
+    el.bolita.hidden = false;
+    el.bolita.style.transform = tr(p1);
+    bolitaEn = null;
+    if (!reducido.matches && ms > 0 && el.bolita.animate) {
+      const anim = el.bolita.animate([{ transform: tr(p0) }, { transform: tr(p1) }],
+        { duration: ms, easing: 'cubic-bezier(.45, 0, .25, 1)' });
+      try { await anim.finished; } catch (e) { /* cancelada por reiniciar() */ }
+    }
+    bolitaEn = a;
+  }
+
+  function ocultarBolita() {
+    el.bolita.hidden = true;
+    bolitaEn = null;
+  }
+
+  /** Antes de cada viaje animado: fuera los contadores de hora punta y las marcas viejas. */
+  function empezar(ev) {
+    if (contando) { contando = false; el.cuenta1.hidden = true; el.cuenta2.hidden = true; }
+    pintarApi(esSimulado(ev));
+    marcar('usuario', null);
+    marcar('cache', null);
+    if (!pendientes.size) marcar('api', null);
+    claveEnCache = null;
+  }
+
+  function armarRelojEspera() {
+    clearTimeout(relojEspera);
+    relojEspera = setTimeout(() => {
+      if (!pendientes.size) return;
+      const nombres = [...pendientes.values()].map((p) => p.nombre).join(', ');
+      pendientes.clear();
+      marcar('api', null);
+      ocultarBolita();
+      texto('punto-error', `Sin respuesta del servicio externo para ${nombres}`);
+    }, ESPERA_MAX_MS);
+  }
+
+  // ---------- Viajes (v escala los tiempos: 1 = velocidad normal) ----------
+  /** ACIERTO: Usuario → Caché (verde) → Usuario. ~1 s con v = 1. */
+  async function acierto(ev, v) {
+    const t = (ms) => ms * v;
+    empezar(ev);
+    texto('', `Consulta · ${ev.nombre}: ¿está en el caché?`);
+    await tramo('usuario', 'cache', t(300), 'b-pregunta');
+    marcar('cache', 'cache', 'acierto');
+    texto('origen-cache', `Acierto · ${ev.nombre} estaba en el caché → respondió en ${fmtMs(ev.tiempo_ms)} ms`);
+    await esperar(t(260));
+    await tramo('cache', 'usuario', t(300), 'b-cache');
+    await esperar(t(140));
+    marcar('cache', null);
+    ocultarBolita();
+  }
+
+  /** VENCIDO (llega justo antes del fallo de la misma clave): Usuario → Caché, que dice "vencido". */
+  async function vencido(ev, v) {
+    const t = (ms) => ms * v;
+    empezar(ev);
+    texto('', `Consulta · ${ev.nombre}: ¿está en el caché?`);
+    await tramo('usuario', 'cache', t(300), 'b-pregunta');
+    marcar('cache', 'api', 'vencido');
+    texto('origen-api', `Vencido · ${ev.nombre} estaba en el caché, pero su TTL ya venció`);
+    await esperar(t(450));
+    claveEnCache = ev.clave;
+  }
+
+  /** FALLO, primera parte: (Usuario →) Caché naranja "no está" → API, que late mientras espera. */
+  async function fallo(ev, v) {
+    const t = (ms) => ms * v;
+    const venia = bolitaEn === 'cache' && claveEnCache === ev.clave; // ya pasó por "vencido"
+    const tipo = venia ? 'vencido' : 'fallo';
+    if (!venia) {
+      empezar(ev);
+      texto('', `Consulta · ${ev.nombre}: ¿está en el caché?`);
+      await tramo('usuario', 'cache', t(300), 'b-pregunta');
+    }
+    claveEnCache = null;
+    const simulado = esSimulado(ev);
+    marcar('cache', 'api', venia ? 'vencido' : 'no está');
+    texto('origen-api', venia
+      ? `Vencido · ${ev.nombre} había vencido → se pide ${aDonde(simulado)}…`
+      : `Fallo · ${ev.nombre} no estaba → se pide ${aDonde(simulado)}…`);
+    await esperar(t(250));
+    await tramo('cache', 'api', t(300), 'b-pregunta');
+    marcar('cache', null);
+    pendientes.set(ev.clave, { nombre: ev.nombre, tipo, simulado, devuelta: false });
+    marcar('api', 'espera', 'esperando');
+    armarRelojEspera();
+    await esperar(t(350));
+  }
+
+  /** FALLO, segunda parte: la API responde → Caché (se guarda la copia). `ev` es la inserción. */
+  async function respuesta(ev, v) {
+    const p = pendientes.get(ev.clave);
+    if (!p || p.devuelta) return;
+    const t = (ms) => ms * v;
+    p.devuelta = true;
+    pintarApi(p.simulado);
+    const otras = [...pendientes.values()].some((o) => !o.devuelta);
+    if (!otras) marcar('api', null);         // ya no queda nadie esperando
+    const ms = ev.tiempo_api_ms != null ? ` (${fmtMs(ev.tiempo_api_ms)} ms)` : '';
+    texto('origen-api', p.tipo === 'vencido'
+      ? `Vencido · ${p.nombre} había vencido → se pidió ${aDonde(p.simulado)}${ms} y se guardó una copia nueva`
+      : `Fallo · ${p.nombre} no estaba → se pidió ${aDonde(p.simulado)}${ms} y se guardó una copia`);
+    await tramo('api', 'cache', t(300), 'b-api');
+    marcar('cache', 'guardar', 'copia guardada');
+    await esperar(t(220));
+  }
+
+  /** FALLO, final: Caché → Usuario con el dato que vino de la API. */
+  async function entrega(ev, v) {
+    const p = pendientes.get(ev.clave);
+    if (!p) return;
+    const t = (ms) => ms * v;
+    if (!p.devuelta) await respuesta(ev, v);
+    pendientes.delete(ev.clave);
+    if (!pendientes.size) clearTimeout(relojEspera);
+    await tramo('cache', 'usuario', t(300), 'b-api');
+    marcar('cache', null);
+    await esperar(t(100));
+    ocultarBolita();
+  }
+
+  // ---------- Hora punta / escaneo ----------
+  /** Contadores encima de cada línea (sin animar cada consulta). */
+  function contadores(nCache, nApi, titulo) {
+    if (!contando) {
+      reiniciar();
+      contando = true;
+      pintarApi(true);   // las simulaciones nunca llegan a Open-Meteo
+      el.cuenta1.hidden = false;
+      el.cuenta2.hidden = false;
+    }
+    el.num1.textContent = fmt(nCache);
+    el.num2.textContent = fmt(nApi);
+    texto('', `${titulo} · ${fmt(nCache + nApi)} consultas: ${fmt(nCache)} respondidas por el caché y ${fmt(nApi)} fueron ${aDonde(true)}`);
+  }
+
+  // ---------- Control ----------
+  /** Corta cualquier viaje en curso (resincronización, métricas reiniciadas…). */
+  function reiniciar() {
+    if (el.bolita && el.bolita.getAnimations) el.bolita.getAnimations().forEach((a) => a.cancel());
+    pendientes.clear();
+    clearTimeout(relojEspera);
+    claveEnCache = null;
+    if (!el.bolita) return;
+    ocultarBolita();
+    ['usuario', 'cache', 'api'].forEach((c) => marcar(c, null));
+    if (contando) { contando = false; el.cuenta1.hidden = true; el.cuenta2.hidden = true; }
+  }
+
+  /** El panel avisa la configuración: con "sin conexión" la tercera caja es el servicio simulado. */
+  function configurar(cfg) {
+    const nuevo = !!cfg.sin_conexion;
+    if (nuevo === sinConexion) return;
+    sinConexion = nuevo;
+    if (!pendientes.size && !contando) pintarApi(false);
+  }
+
+  const esperandoA = (clave) => pendientes.has(clave);
+
+  function iniciar(elementos) {
+    el = elementos;
+    pintarApi(false);
+    // Si cambia el ancho, la bolita quieta vuelve al centro de su caja
+    window.addEventListener('resize', () => { if (bolitaEn && !el.bolita.hidden) el.bolita.style.transform = tr(centro(bolitaEn)); });
+  }
+
+  return { iniciar, configurar, acierto, vencido, fallo, respuesta, entrega, contadores, reiniciar, esperandoA };
+})();

@@ -43,6 +43,39 @@
       </div>
     </section>
 
+    <!-- Recorrido de la consulta (recorrido.js): por dónde pasó cada consulta animada -->
+    <section class="seccion recorrido" aria-labelledby="tituloRecorrido">
+      <div class="bloque-titulo">
+        <h2 id="tituloRecorrido">Recorrido de la consulta</h2>
+        <span class="nota">La bolita sigue el camino real de cada consulta, según el origen que devolvió el servidor.</span>
+      </div>
+      <div class="rc-escena" id="rcEscena">
+        <span class="rc-bolita" id="rcBolita" hidden aria-hidden="true"></span>
+        <div class="rc-caja" id="rcUsuario">
+          <svg class="rc-icono" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg>
+          <span class="rc-nombre">Usuario</span>
+          <span class="rc-estado"></span>
+        </div>
+        <div class="rc-linea">
+          <span class="rc-cuenta origen origen-cache" id="rcCuenta1" hidden><span class="punto"></span><span id="rcNum1">0</span><span class="rc-cuenta-txt">por el caché</span></span>
+        </div>
+        <div class="rc-caja" id="rcCache">
+          <svg class="rc-icono" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>
+          <span class="rc-nombre">Caché LRU</span>
+          <span class="rc-estado"></span>
+        </div>
+        <div class="rc-linea">
+          <span class="rc-cuenta origen origen-api" id="rcCuenta2" hidden><span class="punto"></span><span id="rcNum2">0</span><span class="rc-cuenta-txt" id="rcEtiquetaApi">a la API</span></span>
+        </div>
+        <div class="rc-caja" id="rcApi">
+          <svg class="rc-icono" id="rcIconoApi" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
+          <span class="rc-nombre" id="rcNombreApi">Open-Meteo (API)</span>
+          <span class="rc-estado"></span>
+        </div>
+      </div>
+      <p id="rcTexto" class="recorrido-texto origen" aria-live="polite"><span class="punto"></span><span>Pulsa «Siguiente consulta» para ver el viaje de una consulta.</span></p>
+    </section>
+
     <section class="seccion seccion-lista" aria-label="Lista doblemente enlazada">
       <div class="bloque-titulo">
         <h2>Lista doblemente enlazada</h2>
@@ -119,7 +152,8 @@
           </div>
         </div>
         <div class="controles-pie">
-          <button type="button" class="btn" id="btnVaciar">Vaciar caché</button>
+          <button type="button" class="btn" id="btnVaciar" title="Borra los datos guardados; las métricas siguen">Vaciar caché</button>
+          <button type="button" class="btn" id="btnReiniciarMetricas" title="Pone en cero las métricas y el registro; los datos guardados y la configuración no cambian">Reiniciar métricas</button>
         </div>
       </section>
 
@@ -151,7 +185,7 @@
       </div>
       <div class="tabla-scroll">
         <table class="tabla">
-          <thead><tr><th>Hora</th><th>Lugar</th><th>Quién</th><th>Clave</th><th>Origen</th><th class="num">Tiempo</th></tr></thead>
+          <thead><tr><th>Hora (Lima)</th><th>Lugar</th><th>Quién</th><th>Clave</th><th>Origen</th><th class="num">Tiempo</th></tr></thead>
           <tbody id="registro"><tr><td colspan="6" class="tabla-vacia">Sin consultas todavía</td></tr></tbody>
         </table>
       </div>
@@ -200,6 +234,7 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+<script src="{{ url_for('static', filename='js/recorrido.js') }}"></script>
 <script src="{{ url_for('static', filename='js/visor_lista.js') }}"></script>
 <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
 {% endblock %}

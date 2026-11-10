@@ -3,9 +3,12 @@
 Ambos tienen la MISMA interfaz, así el resto del programa no sabe cuál usa:
     consultar(lat, lon, nombre) -> dict con "nombre", "lat", "lon", "actual", "pronostico"
     buscar(texto)               -> lista de {"nombre", "detalle", "lat", "lon"}
+    nombrar(lat, lon)           -> nombre del lugar en esas coordenadas, o None
 """
 
+import math
 import random
+import threading
 import time
 import unicodedata
 import zlib
@@ -17,7 +20,30 @@ from .lugares_peru import LUGARES_PERU
 
 URL_PRONOSTICO = "https://api.open-meteo.com/v1/forecast"
 URL_GEOCODIFICACION = "https://geocoding-api.open-meteo.com/v1/search"
+# Open-Meteo no tiene geocodificación inversa: se usa Nominatim (OpenStreetMap),
+# también gratuito. Sus reglas piden un User-Agent propio y máximo 1 consulta por segundo.
+URL_GEOCODIFICACION_INVERSA = "https://nominatim.openstreetmap.org/reverse"
+AGENTE_NOMINATIM = "Nimbus/1.0 (proyecto academico, cache LRU)"
 DIAS_PRONOSTICO = 5
+RADIO_LUGAR_LOCAL_KM = 30   # sin conexión: el lugar conocido más cercano dentro de este radio
+
+
+def distancia_km(lat1, lon1, lat2, lon2):
+    """Distancia aproximada entre dos puntos (fórmula de haversine)."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp, dl = p2 - p1, math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * 6371 * math.asin(math.sqrt(a))
+
+
+def nombrar_local(lat, lon, radio_km=RADIO_LUGAR_LOCAL_KM):
+    """Nombre del lugar de la lista local más cercano a (lat, lon), o None si está lejos."""
+    mejor, dmin = None, radio_km
+    for nombre, _, la, lo in LUGARES_PERU:
+        d = distancia_km(lat, lon, la, lo)
+        if d <= dmin:
+            mejor, dmin = nombre, d
+    return mejor
 
 
 class ErrorServicioExterno(Exception):
@@ -65,6 +91,11 @@ class ServicioClimaReal:
     def __init__(self, timeout_s=8, sesion=None):
         self.timeout_s = timeout_s
         self.sesion = sesion or requests.Session()
+        # Geocodificación inversa: respeta 1 consulta por segundo y recuerda los
+        # nombres ya pedidos (un dict simple; no tiene nada que ver con el caché LRU)
+        self._candado_nombres = threading.Lock()
+        self._ultimo_nombre = 0.0
+        self._nombres = {}
 
     def _pedir(self, url, parametros):
         try:
@@ -150,6 +181,45 @@ class ServicioClimaReal:
             })
         return resultados
 
+    def nombrar(self, lat, lon):
+        """Geocodificación inversa con Nominatim: "Manaos, Brasil", o None si no hay nombre (mar, desierto…)."""
+        clave = clave_de(lat, lon)
+        with self._candado_nombres:
+            if clave in self._nombres:
+                return self._nombres[clave]
+            espera = 1.0 - (time.monotonic() - self._ultimo_nombre)
+            if espera > 0:
+                time.sleep(espera)
+            try:
+                resp = self.sesion.get(URL_GEOCODIFICACION_INVERSA, params={
+                    "lat": lat, "lon": lon, "format": "jsonv2", "zoom": 10, "accept-language": "es",
+                }, headers={"User-Agent": AGENTE_NOMINATIM}, timeout=min(self.timeout_s, 5))
+                resp.raise_for_status()
+                datos = resp.json()
+            except (requests.RequestException, ValueError) as e:
+                raise ErrorServicioExterno("No se pudo obtener el nombre del lugar.") from e
+            finally:
+                self._ultimo_nombre = time.monotonic()
+            nombre = nombre_de_direccion(datos)
+            if len(self._nombres) >= 500:
+                self._nombres.clear()
+            self._nombres[clave] = nombre
+            return nombre
+
+
+def nombre_de_direccion(datos):
+    """Arma "Lugar, País" con la respuesta de Nominatim; None si no hay dirección."""
+    if not isinstance(datos, dict) or "error" in datos:
+        return None
+    direccion = datos.get("address") or {}
+    lugar = next((direccion[k] for k in ("city", "town", "village", "hamlet", "municipality",
+                                          "county", "state_district", "state", "region")
+                  if direccion.get(k)), None) or datos.get("name") or None
+    pais = direccion.get("country")
+    if lugar and pais and pais != lugar:
+        return f"{lugar}, {pais}"
+    return lugar or pais or None
+
 
 # ----------------------------------------------------------------------
 # Servicio simulado (modo sin conexión, RF-07)
@@ -215,3 +285,6 @@ class ServicioClimaSimulado:
 
     def buscar(self, texto, limite=7):
         return buscar_local(texto, limite)
+
+    def nombrar(self, lat, lon):
+        return nombrar_local(lat, lon)
