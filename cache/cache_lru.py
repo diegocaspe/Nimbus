@@ -151,6 +151,18 @@ class CacheLRU:
         with self._candado:
             self._reiniciar_metricas()
 
+    def borrar_eventos(self):
+        """Borra el registro de eventos y vuelve la secuencia a 0. O(1).
+
+        Lo usa el reinicio completo del panel ("Vaciar todo"). Un panel que
+        pida eventos con un `desde` mayor que la nueva secuencia recibe
+        "perdidos" = True y se resincroniza con el estado (vacío).
+        No toca los datos, las métricas ni la configuración.
+        """
+        with self._candado:
+            self._eventos = []
+            self._secuencia = 0
+
     # ------------------------------------------------------------------
     # Configuración
     # ------------------------------------------------------------------

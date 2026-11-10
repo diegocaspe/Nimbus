@@ -286,6 +286,16 @@ def admin_metricas_reiniciar():
     return jsonify({"ok": True, "mensaje": "Métricas reiniciadas."})
 
 
+@rutas.post("/admin/reiniciar-todo")
+@requiere_admin
+def admin_reiniciar_todo():
+    """"Vaciar todo": detiene la simulación, vacía el caché y pone en cero métricas,
+    registro de consultas, Resumen de la sala y eventos. La configuración no cambia."""
+    n = nimbus()
+    n.reiniciar_todo()
+    return jsonify({"ok": True, "mensaje": "Todo reiniciado.", **n.configuracion()})
+
+
 def _lanzar(tipo):
     """Body JSON opcional: {"velocidad": "rapida" | "presentacion"} (por defecto rápida)."""
     n = nimbus()

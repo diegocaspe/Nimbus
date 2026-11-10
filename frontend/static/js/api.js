@@ -61,6 +61,9 @@ window.NimbusAPI = (function () {
     registro: () => pedir('/admin/registro').then((r) => r.consultas || []),
     /** POST /admin/metricas/reiniciar -> métricas, tiempos y registro en cero (no toca los datos) */
     reiniciarMetricas: () => enviar('/admin/metricas/reiniciar'),
+    /** POST /admin/reiniciar-todo -> detiene la simulación, vacía el caché y pone en cero
+        métricas, registro de consultas, Resumen de la sala y eventos (la configuración no cambia) */
+    reiniciarTodo: () => enviar('/admin/reiniciar-todo'),
     /** tipo: "hora_punta" | "escaneo" | "camara_lenta". Siempre usan el servicio simulado. */
     simular: (tipo, velocidad) => enviar({
       escaneo: '/admin/simular/escaneo', camara_lenta: '/admin/simular/camara-lenta',

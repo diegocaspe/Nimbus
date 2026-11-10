@@ -219,6 +219,13 @@ curl -b sesion.txt -X POST -H "Content-Type: application/json" \
 # No toca los datos guardados ni la configuración.
 curl -b sesion.txt -X POST http://127.0.0.1:5000/admin/metricas/reiniciar
 
+# Reinicio completo («Vaciar todo» del panel), en este orden: detiene la simulación en curso,
+# vacía el caché, pone en cero las métricas (y los tiempos con/sin caché), borra el registro de
+# consultas, pone en cero el «Resumen de la sala» (queda sin iniciar) y borra el registro de
+# eventos del caché (la secuencia vuelve a 0). No cambia la configuración ni el benchmark.
+# Responde {"ok": true, "mensaje": "Todo reiniciado.", capacidad, ttl, sin_conexion, latencia_ms, aviso_api}
+curl -b sesion.txt -X POST http://127.0.0.1:5000/admin/reiniciar-todo
+
 # Últimas 20 consultas: hora (de Lima), lugar, clave, origen ("cache"/"api"), tiempo_ms,
 # tipo ("publico"/"simulacion") y pionera (true = primera consulta de ese lugar, fue a la API)
 curl -b sesion.txt http://127.0.0.1:5000/admin/registro
@@ -310,6 +317,7 @@ lista:  [cabeza] ⇄ [Lima] ⇄ ... ⇄ [Arequipa] ⇄ [cola]
 | `eliminar(clave)` | O(1) promedio | Busca en el `dict` y desengancha el nodo. |
 | `vaciar()` | O(1) | Crea un `dict` y una lista nuevos. No cambia las métricas. |
 | `reiniciar_metricas()` | O(1) | Pone cuatro contadores en cero. No toca los datos. |
+| `borrar_eventos()` | O(1) | Crea un registro de eventos nuevo y vuelve la secuencia a 0 (solo para «Vaciar todo»). |
 | `cambiar_capacidad(n)` | O(k) | k es la cantidad de entradas que sobran; cada expulsión es O(1). |
 | `obtener_estadisticas()` | O(1) | Son contadores. |
 | `obtener_estado()` | O(n) | Recorre la lista. Solo se usa para mostrar el panel, nunca dentro de `obtener` ni `guardar`. |
@@ -340,6 +348,6 @@ Con una lista simple, quitar un nodo del medio obligaría a recorrerla para enco
   | Consultas del público | Open-Meteo real |
 
   En modo normal, «Open-Meteo real» pasa al simulado solo si Open-Meteo falla o responde 429 (o si el administrador activa el modo sin conexión); el panel lo indica con el aviso de arriba. La tercera caja del «Recorrido de la consulta» siempre dice «Open-Meteo (API)»; en hora punta y escaneo no se anima, solo se muestran los contadores.
-- **«Vaciar caché» en la fila de simulaciones.** En un clic: la lista y el recorrido se limpian al instante en el navegador (se corta la animación en curso y se vacía la cola de reproducción), luego `POST /admin/simulacion/detener` cancela la simulación y espera a su hilo, y `POST /vaciar` borra los datos. El panel ignora las respuestas del sondeo que lleguen mientras tanto y, al terminar, copia el estado real (vacío). El botón «Vaciar caché» de Configuración sigue haciendo solo `POST /vaciar`.
+- **«Vaciar todo» (fila de simulaciones y Configuración).** Para empezar cada exposición desde cero, sin ventana de confirmación. En un clic, el panel se limpia al instante en el navegador (lista, recorrido sin bolita ni contadores, métricas, registro de consultas y «Resumen de la sala» en cero) y muestra «Todo reiniciado»; luego `POST /admin/reiniciar-todo` hace lo mismo en el servidor (detiene la simulación y espera a su hilo, vacía el caché, pone en cero métricas, registro, Resumen de la sala y eventos). Como todo vive en la memoria del servidor, al recargar la página sigue en cero. El panel ignora las respuestas del sondeo que lleguen mientras tanto y, al terminar, copia el estado real. La configuración y los resultados del benchmark no cambian. «Reiniciar métricas» sigue disponible para poner en cero solo métricas y registro, y `POST /vaciar` sigue borrando solo los datos.
 - **Respaldo ante fallas de Open-Meteo.** Si una consulta real falla o recibe 429, `Nimbus` pasa solo al servicio simulado, responde igual y deja un aviso que el panel muestra arriba.
 - **Dinámica con el público.** «Iniciar dinámica» pone en cero el «Resumen de la sala», que cuenta solo las consultas del público (no las simuladas) y se puede ver a pantalla completa. En el registro, la primera consulta de cada lugar se marca como «pionera»: es la que fue a la API y dejó el dato en el caché para los demás.

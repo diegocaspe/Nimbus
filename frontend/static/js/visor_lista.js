@@ -55,7 +55,7 @@ window.VisorLista = (function () {
   // Velocidad del viaje en el diagrama del recorrido (1 = ~1 s un acierto, ~2 s un fallo).
   // La cámara lenta llega a 1 consulta por segundo: su viaje es algo más corto para no atrasarse.
   const VIAJE = { paso: 1, lenta: 0.6, publico: 1, repeticion: 0.6 };
-  const SIN_RECORRIDO = { acierto() {}, vencido() {}, fallo() {}, respuesta() {}, entrega() {}, contadores() {}, reiniciar() {}, esperandoA: () => false };
+  const SIN_RECORRIDO = { acierto() {}, vencido() {}, fallo() {}, respuesta() {}, entrega() {}, contadores() {}, reiniciar() {}, limpiarTodo() {}, esperandoA: () => false };
   const R = window.Recorrido || SIN_RECORRIDO;
   const CANCELADO = R.CANCELADO || new Error('animación cancelada');
 
@@ -756,11 +756,24 @@ window.VisorLista = (function () {
     if (texto) narrar(texto, 'neutro');
   }
 
+  /**
+   * «Vaciar todo»: como limpiar(), y además borra el historial del narrador
+   * y deja el recorrido sin bolita ni contadores.
+   */
+  function limpiarTodo(texto) {
+    limpiar(null);
+    R.limpiarTodo();
+    historial.length = 0;
+    el.historial.innerHTML = '';
+    el.narrador.dataset.texto = '';
+    if (texto) narrar(texto, 'neutro');
+  }
+
   /** true: ignora el servidor (se está vaciando). false: la próxima respuesta copia el estado real. */
   function pausarSondeo(pausar) {
     if (pausar) { congelado = true; gen++; }
     else { congelado = false; descartar = true; }
   }
 
-  return { iniciar, estadoSimulacion, paso, repetirUltimas, limpiar, pausarSondeo };
+  return { iniciar, estadoSimulacion, paso, repetirUltimas, limpiar, limpiarTodo, pausarSondeo };
 })();

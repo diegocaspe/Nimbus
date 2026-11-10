@@ -172,6 +172,29 @@ class Nimbus:
         with self._candado_registro:
             self._registro = []
 
+    def reiniciar_todo(self):
+        """Reinicio completo para empezar una exposición desde cero ("Vaciar todo").
+
+        En este orden:
+          a) detiene la simulación en curso (cámara lenta, hora punta, escaneo)
+             y borra su progreso;
+          b) vacía el caché (CacheLRU.vaciar());
+          c) pone en cero las métricas del caché y los tiempos con/sin caché
+             (de ahí salen tasa, API evitadas, ahorro y tiempo ahorrado);
+          d) borra el registro de consultas (y los lugares "pioneros");
+          e) pone en cero el "Resumen de la sala" (la dinámica queda sin iniciar);
+          f) borra el registro de eventos del caché que anima el panel.
+        No cambia la configuración (capacidad, TTL, modo sin conexión, latencia)
+        ni los resultados del benchmark. Todo vive en memoria: tras esto,
+        recargar la página muestra todo en cero.
+        """
+        self.simulacion.reiniciar()
+        self.cache.vaciar()
+        self.reiniciar_metricas()          # c) y d)
+        with self._candado_metricas:
+            self._dinamica = self._dinamica_vacia(activa=False)
+        self.cache.borrar_eventos()
+
     # ------------------------------------------------------------------
     # Configuración
     # ------------------------------------------------------------------

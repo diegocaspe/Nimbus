@@ -6,6 +6,8 @@
      GET  /admin/dinamica/resumen     "Resumen de la sala" (solo consultas del público)
      POST /admin/configuracion        capacidad, ttl, sin_conexion, latencia_ms
      POST /admin/metricas/reiniciar   métricas, tiempos y registro en cero
+     POST /admin/reiniciar-todo       «Vaciar todo»: simulación, caché, métricas, registro,
+                                      Resumen de la sala y eventos en cero (config. intacta)
      POST /admin/simulacion/detener   cancela la simulación (responde cuando su hilo terminó)
    Todas las horas que manda el backend ya vienen en hora de Lima (UTC-5).
      GET  /admin/benchmark            resultados del benchmark
@@ -36,7 +38,9 @@
   const fallar = (e) => { if (!siSesionVencio(e)) mensaje(e.message); };
 
   // ---------- Métricas, comparación y aviso de API ----------
+  let ultimasMetricas = null;  // «Vaciar todo» las repinta en cero conservando capacidad, TTL y modo
   function pintarMetricas(st) {
+    ultimasMetricas = st;
     $('mAciertos').textContent = fmt(st.aciertos);
     $('mFallos').textContent = fmt(st.fallos);
     $('mTasa').textContent = Number(st.tasa_aciertos || 0).toFixed(1);
@@ -90,36 +94,51 @@
     finally { setTimeout(() => { $('btnPaso').disabled = simulando; }, 600); }
   });
 
-  // Vaciar caché desde la fila de simulaciones, en un clic:
-  //   1) la lista y el recorrido se limpian YA (sin esperar al servidor)
-  //   2) se detiene la simulación en curso (el backend espera a que su hilo termine)
-  //   3) se vacía el caché; la siguiente respuesta del sondeo solo copia el estado vacío
-  let avisoTimer = null;
-  function avisoVaciado() {
-    const a = $('avisoVaciado');
+  // «Vaciar todo» (botón de la fila de simulaciones y botón de Configuración), sin confirmación:
+  //   1) el panel se limpia YA (lista, recorrido, métricas, registro, Resumen de la sala)
+  //   2) POST /admin/reiniciar-todo: el backend detiene la simulación, vacía el caché y pone
+  //      en cero métricas, registro, Resumen de la sala y eventos (la configuración no cambia)
+  //   3) mientras tanto se ignoran las respuestas del sondeo; al terminar se copia el estado real
+  const avisoTimers = {};
+  function avisoCorto(id) {
+    const a = $(id);
     a.hidden = false;
-    clearTimeout(avisoTimer);
-    avisoTimer = setTimeout(() => { a.hidden = true; }, 2500);
+    clearTimeout(avisoTimers[id]);
+    avisoTimers[id] = setTimeout(() => { a.hidden = true; }, 2500);
   }
-  $('btnVaciarYa').addEventListener('click', async () => {
-    const btn = $('btnVaciarYa');
+  function pintarTodoEnCero() {
+    if (ultimasMetricas) {
+      pintarMetricas(Object.assign({}, ultimasMetricas, {
+        aciertos: 0, fallos: 0, tasa_aciertos: 0, expulsiones: 0, expirados: 0, tamano: 0,
+        llamadas_api_evitadas: 0, soles_ahorrados: 0, comparacion: { ahorrado_ms: 0 },
+      }));
+    }
+    pintarRegistro([]);
+    pintarSala({ activa: false, consultas: 0, aciertos: 0, llamadas_api_evitadas: 0, ahorrado_ms: 0 });
+    pintarSimulacion({ en_curso: false, pausada: false, tipo: null });
+  }
+  async function vaciarTodo(btn, idAviso) {
     btn.disabled = true;
+    reiniciando = true;
+    genRefresco++;
     VisorLista.pausarSondeo(true);
-    VisorLista.limpiar('Caché vaciado: el dict y la lista quedan vacíos.');
-    $('mTamano').textContent = '0';
-    $('mOcupacion').style.width = '0%';
-    avisoVaciado();
+    VisorLista.limpiarTodo('Todo reiniciado: caché, métricas, registro de consultas y Resumen de la sala en cero.');
+    pintarTodoEnCero();
+    avisoCorto(idAviso);
     try {
-      pintarSimulacion(await NimbusAPI.detenerSimulacion());  // sin simulación en curso no hace nada
-      await NimbusAPI.vaciar();
+      await NimbusAPI.reiniciarTodo();
     } catch (e) {
       fallar(e);
     } finally {
+      reiniciando = false;
       VisorLista.pausarSondeo(false);
       btn.disabled = false;
+      pidiendo = false;  // una petición vieja en vuelo ya quedó descartada
       refrescar();
     }
-  });
+  }
+  $('btnVaciarYa').addEventListener('click', () => vaciarTodo($('btnVaciarYa'), 'avisoVaciado'));
+  $('btnVaciar').addEventListener('click', () => vaciarTodo($('btnVaciar'), 'avisoVaciadoPie'));
 
   // ---------- Registro ----------
   function pintarRegistro(filas) {
@@ -141,6 +160,7 @@
   // ---------- Simulaciones ----------
   let simulando = false, pausada = false;
   const NOMBRE_SIM = { hora_punta: 'Hora punta', escaneo: 'Escaneo', camara_lenta: 'Cámara lenta' };
+  const TXT_SIM_INICIAL = $('txtSim').textContent;
 
   function pintarSimulacion(s) {
     simulando = s.en_curso;
@@ -152,7 +172,11 @@
     $('btnPausaLenta').hidden = !lenta;
     $('btnPausaLenta').textContent = pausada ? 'Reanudar' : 'Pausar';
     $('btnPausaLenta').setAttribute('aria-pressed', String(pausada));
-    if (!s.tipo) return;
+    if (!s.tipo) {  // sin simulación (al cargar o tras «Vaciar todo»)
+      $('barraSim').style.width = '0%';
+      $('txtSim').textContent = TXT_SIM_INICIAL;
+      return;
+    }
     $('barraSim').style.width = s.progreso + '%';
     const hechas = s.aciertos + s.fallos;
     const tasa = hechas ? ((s.aciertos / hechas) * 100).toFixed(1) : '0.0';
@@ -199,14 +223,18 @@
   });
 
   // ---------- Polling ----------
-  let pidiendo = false;
+  // genRefresco sube con «Vaciar todo»: una respuesta pedida antes (o durante) el reinicio
+  // traería números viejos y se descarta.
+  let pidiendo = false, reiniciando = false, genRefresco = 0;
   async function refrescar() {
-    if (pidiendo) return;
+    if (pidiendo || reiniciando) return;
     pidiendo = true;
+    const g = genRefresco;
     try {
       const [st, filas, sim, sala] = await Promise.all([
         NimbusAPI.estadisticas(), NimbusAPI.registro(), NimbusAPI.estadoSimulacion(), NimbusAPI.resumenDinamica(),
       ]);
+      if (g !== genRefresco || reiniciando) return;
       pintarMetricas(st);
       pintarRegistro(filas);
       pintarSimulacion(sim);
@@ -240,10 +268,6 @@
   $('inTtl').addEventListener('change', (e) => configurar({ ttl: Number(e.target.value) }));
   $('inLatencia').addEventListener('change', (e) => configurar({ latencia_ms: Number(e.target.value) }));
   $('inSinConexion').addEventListener('change', (e) => configurar({ sin_conexion: e.target.checked }));
-  // Vaciar: borra solo los datos guardados (las métricas siguen)
-  $('btnVaciar').addEventListener('click', async () => {
-    try { await NimbusAPI.vaciar(); refrescar(); } catch (e) { fallar(e); }
-  });
   // Reiniciar métricas: contadores, promedios con/sin caché, tiempo ahorrado y registro en cero.
   // No toca los datos guardados ni la configuración.
   $('btnReiniciarMetricas').addEventListener('click', async () => {

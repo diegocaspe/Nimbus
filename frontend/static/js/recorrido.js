@@ -29,7 +29,7 @@
 
    CANCELAR: reiniciar() sube un número de "generación". Cada viaje revisa
    ese número después de cada espera; si cambió, lanza CANCELADO y se corta
-   (lo usa el botón "Vaciar caché" para limpiar la animación al instante).
+   (lo usa el botón "Vaciar todo" para limpiar la animación al instante).
 
    Las animaciones solo mueven la bolita (posición) y cambian opacidades.
    ========================================================= */
@@ -231,6 +231,15 @@ window.Recorrido = (function () {
     if (contando) { contando = false; el.cuenta1.hidden = true; el.cuenta2.hidden = true; }
   }
 
+  /** «Vaciar todo»: corta los viajes, borra los contadores y vuelve al texto inicial. */
+  function limpiarTodo() {
+    reiniciar();
+    if (!el.texto) return;
+    el.num1.textContent = '0';
+    el.num2.textContent = '0';
+    texto('', 'Pulsa «Siguiente consulta» para ver el viaje de una consulta.');
+  }
+
   const esperandoA = (clave) => pendientes.has(clave);
 
   function iniciar(elementos) {
@@ -239,5 +248,5 @@ window.Recorrido = (function () {
     window.addEventListener('resize', () => { if (bolitaEn && !el.bolita.hidden) el.bolita.style.transform = tr(centro(bolitaEn)); });
   }
 
-  return { CANCELADO, iniciar, acierto, vencido, fallo, respuesta, entrega, contadores, reiniciar, esperandoA };
+  return { CANCELADO, iniciar, acierto, vencido, fallo, respuesta, entrega, contadores, reiniciar, limpiarTodo, esperandoA };
 })();

@@ -86,13 +86,14 @@
           <button type="button" class="btn pri" id="btnHoraPunta">Simular hora punta</button>
           <button type="button" class="btn" id="btnEscaneo">Simular escaneo</button>
           <button type="button" class="btn btn-texto" id="btnDetener" hidden>Detener</button>
-          <!-- Detiene la simulación en curso, vacía el caché y limpia la animación en un clic -->
+          <!-- Reinicio completo en un clic (POST /admin/reiniciar-todo): simulación, caché,
+               métricas, registro de consultas, Resumen de la sala y animación -->
           <span class="con-aviso">
-          <button type="button" class="btn btn-peligro" id="btnVaciarYa" title="Detiene la simulación en curso, vacía el caché y limpia la animación">
+          <button type="button" class="btn btn-peligro" id="btnVaciarYa" title="Vacía el caché y reinicia métricas, registro de consultas y Resumen de la sala. La configuración no cambia">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
-            Vaciar caché
+            Vaciar todo
           </button>
-          <span class="aviso-corto" id="avisoVaciado" role="status" hidden>Caché vaciado</span>
+          <span class="aviso-corto" id="avisoVaciado" role="status" hidden>Todo reiniciado</span>
           </span>
         </div>
       </div>
@@ -160,7 +161,10 @@
           </div>
         </div>
         <div class="controles-pie">
-          <button type="button" class="btn" id="btnVaciar" title="Borra los datos guardados; las métricas siguen">Vaciar caché</button>
+          <span class="con-aviso">
+          <button type="button" class="btn" id="btnVaciar" title="Vacía el caché y reinicia métricas, registro de consultas y Resumen de la sala. La configuración no cambia">Vaciar todo</button>
+          <span class="aviso-corto" id="avisoVaciadoPie" role="status" hidden>Todo reiniciado</span>
+          </span>
           <button type="button" class="btn" id="btnReiniciarMetricas" title="Pone en cero las métricas y el registro; los datos guardados y la configuración no cambian">Reiniciar métricas</button>
         </div>
       </section>

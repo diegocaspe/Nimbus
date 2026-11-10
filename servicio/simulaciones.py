@@ -166,6 +166,18 @@ class Simulacion:
             hilo.join(espera_s)
         return self.estado()
 
+    def reiniciar(self):
+        """Detiene la simulación en curso y borra su progreso (como recién creada).
+
+        Si el hilo no terminó dentro de la espera de detener(), el estado se
+        conserva para no mezclarlo con una simulación que aún corre.
+        """
+        self.detener()
+        with self._candado:
+            if not self._estado["en_curso"]:
+                self._estado = self._estado_vacio()
+        return self.estado()
+
     def _correr(self, nimbus, lugares, pausa, origen, servicio):
         inicio = time.perf_counter()
 
